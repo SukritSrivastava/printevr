@@ -13,6 +13,10 @@
     {
       "source": "/api/(.*)",
       "destination": "/api/index"
+    },
+    {
+      "source": "/login",
+      "destination": "/index.html"
     }
   ]
 }

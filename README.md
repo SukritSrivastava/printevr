@@ -42,6 +42,19 @@ The sheet and config are bundled into each deployment, so to change prices, comm
 
 If the API can't start on Vercel, every `/api/*` call answers `503 STARTUP_FAILED` with the exception, and the full traceback is in the function logs. Open `/api/health` to see it.
 
+## Password
+
+The site asks for a password before anything else loads (`/login`), then opens the quote desk. The check is server-side: without the signed session cookie from `POST /api/login`, every pricing endpoint answers `401`. Only `/api/health` and the sign-in routes are open. Wrong guesses are limited to 10 a minute per IP.
+
+The password lives in the `SITE_PASSWORD` environment variable, never in the code (this repo is public). To change it on Vercel:
+
+```sh
+npx vercel env rm SITE_PASSWORD production
+npx vercel env add SITE_PASSWORD production   # type the new one
+```
+
+Then redeploy. Changing the password signs everyone out.
+
 ## Tests
 
 ```sh
@@ -72,6 +85,9 @@ A reload that fails (a blank price, a duplicated tier, a product missing from co
 | `ADMIN_TOKEN` | *(unset)* | Required header value for `/api/admin/reload` |
 | `CORS_ORIGIN` | `http://localhost:5173` | Frontend origin(s), comma-separated |
 | `RATE_LIMIT_PER_MINUTE` | `60` | `/api/calculate` calls per minute per IP |
+| `SITE_PASSWORD` | *(unset)* | Password for the site. Unset locally means no password; on Vercel the API refuses to run without it |
+| `SESSION_SECRET` | *(unset)* | Optional extra secret for signing the session cookie |
+| `SESSION_DAYS` | `7` | How long a sign-in lasts |
 | `TRUST_PROXY_HEADERS` | `1` on Vercel, else `0` | Rate-limit by the forwarded client IP (`X-Real-IP` / `X-Forwarded-For`) instead of the proxy's |
 | `DATA_FILE`, `CONFIG_FILE` | `data/…xlsx`, `config/products.yaml` | Override file locations |
 | `VITE_API_URL` (frontend build) | *(same origin)* | API base URL when the UI and API are on different hosts |

@@ -10,15 +10,18 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from . import auth
 from .catalogue import Catalogue
 from .loader import LoaderError, load
-from .models import CalculateRequest
+from .models import CalculateRequest, LoginRequest
 from .quote import QuoteError, QuoteInput, calculate
 from .settings import Settings, get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("printevr.api")
 calc_log = logging.getLogger("printevr.calc")
+
+LOGIN_ATTEMPTS_PER_MINUTE = 10
 
 
 def error(code: str, message: str, status: int, details: dict | None = None) -> JSONResponse:
@@ -77,9 +80,69 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         store.load_error = str(exc)
         log.error("PRICE DATA NOT LOADED: %s", exc)
 
+    login_limiter = RateLimiter(LOGIN_ATTEMPTS_PER_MINUTE)
+
     app = FastAPI(title="Printevr Pricing API", version="2.1")
     app.state.store = store
     app.state.limiter = limiter
+
+    def signed_in(request: Request) -> bool:
+        if settings.site_password is None:
+            return not settings.require_password
+        return auth.token_valid(request.cookies.get(auth.COOKIE_NAME), settings.site_password, settings.session_secret)
+
+    @app.middleware("http")
+    async def require_session(request: Request, call_next):
+        path = request.url.path
+        # /api/admin/reload has its own token; the login flow and health check are open.
+        if not path.startswith("/api/") or path in auth.PUBLIC_PATHS or path == "/api/admin/reload":
+            return await call_next(request)
+        if settings.site_password is None and settings.require_password:
+            return error("AUTH_NOT_CONFIGURED", "The site password isn't set on the server (SITE_PASSWORD)", 503)
+        if not signed_in(request):
+            return error("UNAUTHENTICATED", "Enter the password to continue", 401)
+        return await call_next(request)
+
+    def https(request: Request) -> bool:
+        if settings.trust_proxy_headers and request.headers.get("x-forwarded-proto"):
+            return request.headers["x-forwarded-proto"].split(",")[0].strip() == "https"
+        return request.url.scheme == "https"
+
+    @app.get("/api/session")
+    def session(request: Request):
+        return {
+            "authenticated": signed_in(request),
+            "password_required": settings.site_password is not None or settings.require_password,
+        }
+
+    @app.post("/api/login")
+    def login(body: LoginRequest, request: Request):
+        if settings.site_password is None:
+            if settings.require_password:
+                return error("AUTH_NOT_CONFIGURED", "The site password isn't set on the server (SITE_PASSWORD)", 503)
+            return {"status": "ok"}
+        if not login_limiter.allow(client_ip(request, settings.trust_proxy_headers)):
+            return error("RATE_LIMITED", "Too many attempts - wait a minute and try again", 429)
+        if not auth.password_matches(body.password, settings.site_password):
+            log.warning("Failed login from %s", client_ip(request, settings.trust_proxy_headers))
+            return error("WRONG_PASSWORD", "That password isn't right", 401)
+        response = JSONResponse({"status": "ok"})
+        response.set_cookie(
+            auth.COOKIE_NAME,
+            auth.issue_token(settings.site_password, settings.session_secret, settings.session_days),
+            max_age=settings.session_days * 86400,
+            httponly=True,
+            secure=https(request),
+            samesite="lax",
+            path="/",
+        )
+        return response
+
+    @app.post("/api/logout")
+    def logout():
+        response = JSONResponse({"status": "ok"})
+        response.delete_cookie(auth.COOKIE_NAME, path="/")
+        return response
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

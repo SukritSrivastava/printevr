@@ -39,6 +39,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+export interface Session {
+  authenticated: boolean
+  password_required: boolean
+}
+
+export function fetchSession(signal?: AbortSignal): Promise<Session> {
+  return request<Session>('/api/session', { signal })
+}
+
+export function login(password: string): Promise<{ status: 'ok' }> {
+  return request('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  })
+}
+
+export function logout(): Promise<{ status: 'ok' }> {
+  return request('/api/logout', { method: 'POST' })
+}
+
 export function fetchCatalog(signal?: AbortSignal): Promise<Catalog> {
   return request<Catalog>('/api/catalog', { signal })
 }

@@ -16,6 +16,13 @@ class Settings:
     # Behind a proxy (Vercel, nginx) every request comes from the proxy's address, so the
     # rate limit must key on the client IP the proxy forwards instead.
     trust_proxy_headers: bool = False
+    # Shared site password. None = no password (local development and tests).
+    site_password: str | None = None
+    session_secret: str = ""
+    session_days: int = 7
+    # On a public host the site must never run open by accident: without a password,
+    # every protected route refuses to answer.
+    require_password: bool = False
 
 
 def _env(name: str, default: str) -> str:
@@ -40,4 +47,8 @@ def get_settings() -> Settings:
         cors_origins=[o.strip() for o in _env("CORS_ORIGIN", "http://localhost:5173").split(",") if o.strip()],
         rate_limit_per_minute=_env_int("RATE_LIMIT_PER_MINUTE", 60),
         trust_proxy_headers=_env("TRUST_PROXY_HEADERS", "1" if os.getenv("VERCEL") else "0") == "1",
+        site_password=_env("SITE_PASSWORD", "") or None,
+        session_secret=_env("SESSION_SECRET", ""),
+        session_days=_env_int("SESSION_DAYS", 7),
+        require_password=bool(os.getenv("VERCEL")),
     )

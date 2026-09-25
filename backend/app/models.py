@@ -15,6 +15,10 @@ class CustomDimensions(BaseModel):
     unit: Literal["in", "cm"] = "in"
 
 
+class LoginRequest(BaseModel):
+    password: str = Field(max_length=200)
+
+
 class CalculateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

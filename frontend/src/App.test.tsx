@@ -9,6 +9,8 @@ import { quoteText } from './lib/quoteText'
 import { dimensionError, normalize } from './lib/selection'
 import { C1, T1, T5, catalog } from './test/fixtures'
 
+const SIGNED_IN = { authenticated: true, password_required: true }
+
 type Handler = (body: CalculateRequest) => QuoteResponse
 
 function mockApi(handler: Handler) {
@@ -16,6 +18,7 @@ function mockApi(handler: Handler) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/session')) return new Response(JSON.stringify(SIGNED_IN))
       if (url.endsWith('/api/catalog')) return new Response(JSON.stringify(catalog))
       const body = JSON.parse(String(init?.body)) as CalculateRequest
       calls.push(body)
@@ -130,6 +133,7 @@ describe('quote desk', () => {
       data: { product: { id: 'rigid_boxes', name: 'Rigid Boxes', description: 'custom' } },
     }))
     renderApp()
+    await screen.findByLabelText(/Quantity/)
     await act(() => vi.advanceTimersByTimeAsync(300))
     expect(await within(quote()).findByText('Needs a manual quote')).toBeInTheDocument()
   })
@@ -139,7 +143,8 @@ describe('quote desk', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        if (url.endsWith('/api/catalog')) return new Response(JSON.stringify(catalog))
+        if (url.endsWith('/api/session')) return new Response(JSON.stringify(SIGNED_IN))
+      if (url.endsWith('/api/catalog')) return new Response(JSON.stringify(catalog))
         if (!up) throw new TypeError('Failed to fetch')
         return new Response(JSON.stringify(T1))
       }),
@@ -167,5 +172,64 @@ describe('copy quote', () => {
     expect(text).toContain('GST 18%: ₹4,725.00')
     expect(text).toContain('*Total: ₹30,975.00*')
     expect(text).toContain('Production time: 10-12 days')
+  })
+})
+
+describe('password page', () => {
+  function mockAuth(correct: string) {
+    let signedIn = false
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/session')) return new Response(JSON.stringify({ authenticated: signedIn, password_required: true }))
+      if (url.endsWith('/api/login')) {
+        const { password } = JSON.parse(String(init?.body))
+        if (password !== correct) {
+          return new Response(JSON.stringify({ status: 'error', error: { code: 'WRONG_PASSWORD', message: "That password isn't right", details: {} } }), { status: 401 })
+        }
+        signedIn = true
+        return new Response(JSON.stringify({ status: 'ok' }))
+      }
+      if (url.endsWith('/api/logout')) {
+        signedIn = false
+        return new Response(JSON.stringify({ status: 'ok' }))
+      }
+      if (!signedIn) {
+        return new Response(JSON.stringify({ status: 'error', error: { code: 'UNAUTHENTICATED', message: 'Enter the password', details: {} } }), { status: 401 })
+      }
+      if (url.endsWith('/api/catalog')) return new Response(JSON.stringify(catalog))
+      return new Response(JSON.stringify(T1))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('shows only the password page until the password is right, then opens the quote desk', async () => {
+    const fetchMock = mockAuth('test-password')
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderApp()
+    const input = await screen.findByLabelText('Password')
+    expect(window.location.pathname).toBe('/login')
+    expect(screen.queryByLabelText(/Quantity/)).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/api/catalog'))).toBe(false)
+
+    await user.type(input, 'wrong')
+    await user.click(screen.getByRole('button', { name: 'Open quote desk' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent("That password isn't right")
+    expect(screen.queryByLabelText(/Quantity/)).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Password'), 'test-password')
+    await user.click(screen.getByRole('button', { name: 'Open quote desk' }))
+    expect(await screen.findByLabelText(/Quantity/)).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/')
+  })
+
+  it('sign out returns to the password page', async () => {
+    mockAuth('test-password')
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderApp()
+    await user.type(await screen.findByLabelText('Password'), 'test-password')
+    await user.click(screen.getByRole('button', { name: 'Open quote desk' }))
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }))
+    expect(await screen.findByLabelText('Password')).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/login')
   })
 })

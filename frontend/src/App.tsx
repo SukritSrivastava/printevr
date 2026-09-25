@@ -1,9 +1,10 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
-import { ApiError, calculate, fetchCatalog } from './api/client'
+import { ApiError, calculate, fetchCatalog, fetchSession, logout } from './api/client'
 import type { BillingType, CalculateRequest, Catalog, CatalogProduct } from './api/types'
 import { AddonList } from './components/AddonList'
 import { CustomSizeInputs, type DimValues } from './components/CustomSizeInputs'
+import { PasswordPage } from './components/PasswordPage'
 import { ProductPicker } from './components/ProductPicker'
 import { QuantityInput } from './components/QuantityInput'
 import { ReceiptCard, type ReceiptState } from './components/ReceiptCard'
@@ -32,46 +33,102 @@ function useDebounced<T>(value: T, ms: number): T {
   return debounced
 }
 
-export default function App() {
-  const catalogQuery = useQuery({ queryKey: ['catalog'], queryFn: ({ signal }) => fetchCatalog(signal), staleTime: Infinity, retry: 1 })
+const LOGIN_PATH = '/login'
 
-  if (catalogQuery.isPending) {
-    return <Shell><p className="p-8 text-ink-soft">Loading the price catalogue…</p></Shell>
+const isSignedOut = (err: unknown) => err instanceof ApiError && err.code === 'UNAUTHENTICATED'
+
+/** Password gate: /login shows the password page; once it's accepted, the quote desk opens at /. */
+export default function App() {
+  const queryClient = useQueryClient()
+  const sessionQuery = useQuery({ queryKey: ['session'], queryFn: ({ signal }) => fetchSession(signal), retry: 1 })
+  const locked = sessionQuery.data ? !sessionQuery.data.authenticated : false
+
+  useEffect(() => {
+    if (!sessionQuery.data) return
+    const target = locked ? LOGIN_PATH : window.location.pathname === LOGIN_PATH ? '/' : null
+    if (target && window.location.pathname !== target) window.history.replaceState(null, '', target)
+  }, [locked, sessionQuery.data])
+
+  const signedOut = () => {
+    queryClient.removeQueries({ queryKey: ['catalog'] })
+    queryClient.removeQueries({ queryKey: ['calculate'] })
+    queryClient.setQueryData(['session'], { authenticated: false, password_required: true })
   }
-  if (catalogQuery.isError) {
-    const err = catalogQuery.error
+
+  if (sessionQuery.isPending) return <div className="min-h-dvh bg-sheet" aria-busy="true" />
+  if (sessionQuery.isError) {
     return (
       <Shell>
-        <div className="m-6 flex max-w-lg flex-col items-start gap-3 rounded-md bg-stock p-6">
-          <h2 className="type-expanded text-lg font-bold text-stop">
-            {err instanceof ApiError && err.code === 'DATA_NOT_LOADED' ? 'The price sheet failed to load' : "Can't reach the pricing server"}
-          </h2>
-          <p className="text-ink-soft">
-            {err instanceof ApiError ? String(err.details.reason ?? err.message) : 'Check that the server is running, then retry.'}
-          </p>
-          <button type="button" className="rounded-md bg-ink px-4 py-2 font-semibold text-stock" onClick={() => catalogQuery.refetch()}>
-            Retry
-          </button>
-        </div>
+        <ServerError message="Check that the server is running, then retry." onRetry={() => sessionQuery.refetch()} />
       </Shell>
     )
   }
+  if (locked) {
+    return <PasswordPage onUnlocked={() => queryClient.setQueryData(['session'], { authenticated: true, password_required: true })} />
+  }
+  const onSignOut = sessionQuery.data.password_required
+    ? () => {
+        logout().finally(signedOut)
+      }
+    : undefined
   return (
-    <Shell>
-      <QuoteDesk catalog={catalogQuery.data} />
+    <Shell onSignOut={onSignOut}>
+      <CatalogGate onSignedOut={signedOut} />
     </Shell>
   )
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function CatalogGate({ onSignedOut }: { onSignedOut: () => void }) {
+  const catalogQuery = useQuery({ queryKey: ['catalog'], queryFn: ({ signal }) => fetchCatalog(signal), staleTime: Infinity, retry: 1 })
+
+  useEffect(() => {
+    if (isSignedOut(catalogQuery.error)) onSignedOut()
+  }, [catalogQuery.error, onSignedOut])
+
+  if (catalogQuery.isPending) {
+    return <p className="p-8 text-ink-soft">Loading the price catalogue…</p>
+  }
+  if (catalogQuery.isError) {
+    const err = catalogQuery.error
+    return (
+      <ServerError
+        title={err instanceof ApiError && err.code === 'DATA_NOT_LOADED' ? 'The price sheet failed to load' : undefined}
+        message={err instanceof ApiError ? String(err.details.reason ?? err.message) : 'Check that the server is running, then retry.'}
+        onRetry={() => catalogQuery.refetch()}
+      />
+    )
+  }
+  return <QuoteDesk catalog={catalogQuery.data} onSignedOut={onSignedOut} />
+}
+
+function ServerError({ title, message, onRetry }: { title?: string; message: string; onRetry: () => void }) {
+  return (
+    <div className="m-6 flex max-w-lg flex-col items-start gap-3 rounded-md bg-stock p-6">
+      <h2 className="type-expanded text-lg font-bold text-stop">{title ?? "Can't reach the pricing server"}</h2>
+      <p className="text-ink-soft">{message}</p>
+      <button type="button" className="rounded-md bg-ink px-4 py-2 font-semibold text-stock" onClick={onRetry}>
+        Retry
+      </button>
+    </div>
+  )
+}
+
+function Shell({ children, onSignOut }: { children: React.ReactNode; onSignOut?: () => void }) {
   return (
     <div className="min-h-dvh">
       <header className="bg-ink text-stock">
-        <div className="mx-auto flex max-w-6xl items-baseline justify-between gap-4 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <h1 className="type-expanded text-lg font-extrabold tracking-tight">
             Printevr <span className="font-normal text-cyan">Quote Desk</span>
           </h1>
-          <p className="text-sm opacity-75">2025-26 catalogue</p>
+          <div className="flex items-center gap-4 text-sm">
+            <p className="opacity-75 max-sm:hidden">2025-26 catalogue</p>
+            {onSignOut && (
+              <button type="button" onClick={onSignOut} className="rounded-md border border-stock/40 px-3 py-1 hover:bg-stock/10">
+                Sign out
+              </button>
+            )}
+          </div>
         </div>
       </header>
       {children}
@@ -84,7 +141,7 @@ function firstProduct(catalog: Catalog): CatalogProduct {
   return all.find((p) => p.id === 'rigid_boxes') ?? all[0]
 }
 
-export function QuoteDesk({ catalog }: { catalog: Catalog }) {
+export function QuoteDesk({ catalog, onSignedOut }: { catalog: Catalog; onSignedOut?: () => void }) {
   const products = useMemo(() => new Map(catalog.categories.flatMap((c) => c.products).map((p) => [p.id, p])), [catalog])
   const [productId, setProductId] = useState(() => firstProduct(catalog).id)
   const product = products.get(productId)!
@@ -161,6 +218,10 @@ export function QuoteDesk({ catalog }: { catalog: Catalog }) {
       predicate: (q) => q.queryKey[1] !== debouncedKey,
     })
   }, [debouncedKey, queryClient])
+
+  useEffect(() => {
+    if (isSignedOut(quoteQuery.error)) onSignedOut?.()
+  }, [quoteQuery.error, onSignedOut])
 
   const receipt: ReceiptState = (() => {
     if (quoteQuery.isError && !quoteQuery.isFetching) {
