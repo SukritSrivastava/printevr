@@ -38,7 +38,7 @@ Import the GitHub repo in Vercel and deploy; `vercel.json` has all the settings,
 
 The sheet and config are bundled into each deployment, so to change prices, commit the updated workbook or `config/products.yaml` and push: Vercel redeploys on its own. `/api/admin/reload` does nothing useful there.
 
-`api/requirements.txt` is what Vercel installs. Keep it the same as `backend/requirements.txt`. `.python-version` pins the function to Python 3.12.
+`api/requirements.txt` is what Vercel installs. Keep it the same as `backend/requirements.txt`.
 
 If the API can't start on Vercel, every `/api/*` call answers `503 STARTUP_FAILED` with the exception, and the full traceback is in the function logs. Open `/api/health` to see it.
 
