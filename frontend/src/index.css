@@ -1,0 +1,151 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --color-sheet: #eef1f4; /* press-sheet grey: page background */
+  --color-stock: #ffffff; /* paper stock: the ticket */
+  --color-ink: #18202e;
+  --color-ink-soft: #4a5568;
+  --color-rule: #cfd6de;
+  --color-cyan: #0093c9; /* process cyan: the one accent */
+  --color-cyan-deep: #006e97;
+  --color-cyan-wash: #e3f3fa;
+  --color-save: #1d7a4e;
+  --color-save-wash: #e4f4ea;
+  --color-warn: #9a6200;
+  --color-warn-wash: #fff3d6;
+  --color-stop: #b42318;
+}
+
+html {
+  background: var(--color-sheet);
+  color: var(--color-ink);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-variation-settings: 'wdth' 100;
+  font-feature-settings: 'tnum' 1;
+}
+
+.type-expanded {
+  font-variation-settings: 'wdth' 125;
+}
+.type-condensed {
+  font-variation-settings: 'wdth' 75;
+}
+
+:focus-visible {
+  outline: 2.5px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+
+/* Form controls share one quiet look; the ticket carries the personality. */
+.field {
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1.5px solid var(--color-rule);
+  border-radius: 6px;
+  background: var(--color-stock);
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  color: inherit;
+}
+.field:hover {
+  border-color: #9aa6b4;
+}
+.field[aria-invalid='true'] {
+  border-color: var(--color-stop);
+}
+select.field {
+  appearance: none;
+  padding-right: 2.25rem;
+  background-image: linear-gradient(45deg, transparent 50%, var(--color-ink) 50%),
+    linear-gradient(135deg, var(--color-ink) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* ---------- The job ticket ---------- */
+.ticket {
+  position: relative;
+  background: var(--color-stock);
+  box-shadow: 0 1px 0 var(--color-rule), 0 14px 30px -18px rgb(24 32 46 / 0.35);
+  transition: opacity 120ms linear;
+}
+.ticket[data-loading='true'] {
+  opacity: 0.55;
+}
+/* Printer's registration marks in the four corners. */
+.reg {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+.reg::before,
+.reg::after {
+  content: '';
+  position: absolute;
+  background: var(--color-ink);
+}
+.reg::before {
+  left: 8px;
+  top: 0;
+  width: 1.5px;
+  height: 18px;
+}
+.reg::after {
+  top: 8px;
+  left: 0;
+  height: 1.5px;
+  width: 18px;
+}
+.reg > span {
+  position: absolute;
+  inset: 3.5px;
+  border: 1.5px solid var(--color-cyan);
+  border-radius: 50%;
+}
+.reg.tl { top: -9px; left: -9px; }
+.reg.tr { top: -9px; right: -9px; }
+.reg.bl { bottom: -9px; left: -9px; }
+.reg.br { bottom: -9px; right: -9px; }
+
+.perforation {
+  height: 0;
+  border-top: 2px dashed var(--color-rule);
+}
+
+/* Colour-control strip used as the tier ladder. */
+.strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+}
+.strip > li {
+  position: relative;
+  min-width: 0;
+}
+.strip .patch {
+  height: 14px;
+  background: repeating-linear-gradient(90deg, #dde3ea 0 3px, #e9edf1 3px 6px);
+}
+.strip .done .patch {
+  background: #b7dff0;
+}
+.strip .active .patch {
+  background: var(--color-cyan);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

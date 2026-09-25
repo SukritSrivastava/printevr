@@ -1,0 +1,260 @@
+# Printevr product config — everything about a product except its prices.
+# Prices live only in data/Printevr_Pricing_Master_2025-26.xlsx.
+# `product` must match the Master "Product" column exactly.
+
+defaults:
+  gst_rate: 0.18
+  below_min_policy: bill_at_min      # or: block
+  custom_round_step: 0.50
+  custom_surcharge_pct: 0            # decision D3
+  flagged_price_policy: warn         # or: block (decision D6)
+  show_invoice_billing: false        # decision D5: hidden in the UI until accounts confirms
+  suggest_more: true
+  size_label: Size
+  notes:
+    - Delivery and design charges extra
+    - 100% advance for custom printing orders
+    - Colours may vary 10-20% from screen to print
+    - Prices from the 2025-26 catalogue
+
+addon_library:
+  round_edges:    { name: Round edges,          price: 1,    basis: per_unit }
+  multicolour:    { name: Multicolour print,    price: 1000, basis: per_order }   # basis assumed, flag F24 (D8)
+  custom_cut:     { name: Custom size cut,      price: 500,  basis: per_order }   # basis assumed
+  golden_special: { name: Special golden print, price: 500,  basis: per_order }   # basis assumed
+  half_stitching: { name: Half stitching and cutting, price: 800, basis: per_order } # basis assumed
+  golden_print:   { name: Golden colour print,  price: 5,    basis: per_unit }
+  black_zipper:   { name: Black zipper,         price: 5,    basis: per_unit }
+  sample:         { name: Sample,               price: from_sheet, basis: per_order }
+
+products:
+  # ---------- Ribbons ----------
+  - product: Customised Ribbon - Single Colour
+    id: ribbon_single_colour
+    sale_unit: roll
+    yield_factor: 180
+    micro_uom: per metre
+    micro_unit: m
+    custom_dims: none
+    size_label: Width
+    option_labels: { option_1: Roll length }
+  - product: Customised Ribbon - Multi Colour
+    id: ribbon_multi_colour
+    sale_unit: roll
+    yield_factor: 180
+    micro_uom: per metre
+    micro_unit: m
+    custom_dims: none
+    size_label: Width
+    option_labels: { option_1: Roll length }
+  - product: Customised Ribbon - Gold / Silver Foil
+    id: ribbon_foil
+    sale_unit: roll
+    yield_factor: 180
+    micro_uom: per metre
+    micro_unit: m
+    custom_dims: none
+    size_label: Width
+    option_labels: { option_1: Roll length }
+  - product: Customised Ribbon - Grosgrain (printed as 'Gross Grain')
+    id: ribbon_grosgrain
+    display_name: Customised Ribbon - Grosgrain
+    sale_unit: roll
+    yield_factor: 90
+    micro_uom: per metre
+    micro_unit: m
+    custom_dims: none
+    size_label: Width
+    option_labels: { option_1: Roll length }
+  - product: Customised Ribbon - Cotton
+    id: ribbon_cotton
+    sale_unit: roll
+    yield_factor: 180
+    micro_uom: per metre
+    micro_unit: m
+    custom_dims: none
+    size_label: Width
+    option_labels: { option_1: Roll length }
+
+  # ---------- Cloth labels ----------
+  - product: Silk Cloth Labels
+    id: labels_silk
+    sale_unit: roll
+    yield_factor: 2000          # decision D9: catalogue says 2,000-2,500
+    micro_uom: per label
+    micro_unit: labels
+    micro_approx: true
+    custom_dims: none
+    size_label: Width
+    option_labels: { option_1: Roll length }
+    addons: [half_stitching]
+  - product: Cotton Cloth Labels
+    id: labels_cotton
+    sale_unit: roll
+    yield_factor: 2000
+    micro_uom: per label
+    micro_unit: labels
+    micro_approx: true
+    custom_dims: none
+    size_label: Width
+    option_labels: { option_1: Roll length }
+    addons: [half_stitching]
+
+  # ---------- Outdoor ----------
+  - product: Outdoor Branding
+    id: outdoor_branding
+    sale_unit: sq ft
+    custom_dims: area_sqft      # UI multiplies width x height x pieces into quantity
+    size_label: Material
+    suggest_more: false         # FR-3.4
+    notes:
+      - Tiers are based on total order square feet (decision D7)
+
+  # ---------- Visiting cards ----------
+  - product: Standard Visiting Cards
+    id: vc_standard
+    sale_unit: card
+    custom_dims: none
+    size_label: Paper
+    option_labels: { option_1: Lamination, option_2: Printing }
+    addons: [round_edges]
+    notes: [Custom card size / shape cut priced on discussion]
+  - product: Raised Foil Visiting Cards
+    id: vc_raised_foil
+    sale_unit: card
+    custom_dims: none
+    size_label: Paper
+    option_labels: { option_1: Lamination, option_2: Printing }
+    addons: [round_edges]
+    notes: [Custom card size / shape cut priced on discussion]
+  - product: Textured Visiting Cards
+    id: vc_textured
+    sale_unit: card
+    custom_dims: none
+    size_label: Paper
+    option_labels: { option_1: Lamination, option_2: Printing }
+    addons: [round_edges]
+    notes: [Custom card size / shape cut priced on discussion]
+  - product: Spot UV Visiting Cards
+    id: vc_spot_uv
+    sale_unit: card
+    custom_dims: none
+    size_label: Paper
+    option_labels: { option_1: Lamination, option_2: Printing }
+    addons: [round_edges]
+    notes: [Custom card size / shape cut priced on discussion]
+
+  # ---------- ID cards ----------
+  - product: Customised ID Cards
+    id: id_cards
+    sale_unit: pc
+    custom_dims: none
+    size_label: Item
+
+  # ---------- Butter paper ----------
+  - product: Customised Butter Paper
+    id: butter_paper
+    sale_unit: sheet
+    custom_dims: flat
+    anchor_group: butter_paper
+    anchor_match: []
+    addons: [multicolour, custom_cut, golden_special]
+
+  # ---------- Sticker sheets ----------
+  - product: Customised Sticker Sheets
+    id: sticker_sheets
+    sale_unit: sheet
+    custom_dims: none
+    size_label: Material
+    max_qty: 1000
+    addons: [sample]
+
+  # ---------- Page 15 cards (flags F9, F10) ----------
+  - product: Untitled cards (pg 15) - table A
+    id: cards_pg15_a
+    sale_unit: card
+    custom_dims: none
+    option_labels: { option_1: Finish }
+  - product: Untitled cards (pg 15) - table B
+    id: cards_pg15_b
+    sale_unit: card
+    custom_dims: none
+    option_labels: { option_1: Finish }
+
+  # ---------- Paper printing ----------
+  - product: Customised Paper Printing
+    id: paper_printing
+    sale_unit: sheet
+    custom_dims: none
+    size_label: Paper
+    max_qty: 1000
+    addons: [sample]
+
+  # ---------- Boxes ----------
+  - product: Monocarton Boxes
+    id: monocarton_boxes
+    sale_unit: box
+    custom_dims: box
+    anchor_group: monocarton_boxes
+    anchor_match: [option_1]
+    option_labels: { option_1: Board }
+    notes: ["Custom material, shape, inside printing, formations and inlets on discussion"]
+  - product: Rigid Boxes
+    id: rigid_boxes
+    sale_unit: box
+    custom_dims: box
+    anchor_group: rigid_boxes
+    anchor_match: [option_1]
+    option_labels: { option_1: Box type }
+    notes: ["Custom material, shape, inside printing, formations and inlets on discussion"]
+  - product: Corrugated Boxes
+    id: corrugated_boxes
+    sale_unit: box
+    custom_dims: box
+    anchor_group: corrugated_boxes
+    anchor_match: [option_1]
+    option_labels: { option_1: Board }
+    notes: ["Custom material, shape, inside printing, formations and inlets on discussion"]
+
+  # ---------- Carry bags: Small + Medium + Large pool together ----------
+  - product: Small Carry Bags
+    id: carry_bags_small
+    sale_unit: bag
+    custom_dims: bag
+    anchor_group: carry_bags
+    notes: &bag_notes
+      - Custom dori / ribbon and special die cut on discussion
+      - Premium finishes (foiling, spot UV, embossing) charged separately
+  - product: Medium Size Carry Bags
+    id: carry_bags_medium
+    sale_unit: bag
+    custom_dims: bag
+    anchor_group: carry_bags
+    notes: *bag_notes
+  - product: Large Size Carry Bags
+    id: carry_bags_large
+    sale_unit: bag
+    custom_dims: bag
+    anchor_group: carry_bags
+    notes: *bag_notes
+
+  # ---------- Mailer bags ----------
+  - product: Customised & Coloured Courier Bags
+    id: courier_bags
+    sale_unit: bag
+    custom_dims: flat
+    anchor_group: courier_bags
+    addons: [golden_print]
+    notes: [Double colour print on discussion]
+  - product: Customised & Coloured Frosted Bags
+    id: frosted_bags
+    sale_unit: bag
+    custom_dims: flat
+    anchor_group: frosted_bags
+    addons: [golden_print, black_zipper]
+    notes: [Double colour print on discussion]
+  - product: Customised & Coloured Kraft Mailer Bags
+    id: kraft_mailer_bags
+    sale_unit: bag
+    custom_dims: flat
+    anchor_group: kraft_mailer_bags

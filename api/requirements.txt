@@ -1,0 +1,7 @@
+# Vercel installs from this file (it can't follow -r includes).
+# Keep it the same as backend/requirements.txt.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+openpyxl>=3.1
+PyYAML>=6.0
