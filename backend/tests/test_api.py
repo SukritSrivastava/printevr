@@ -184,3 +184,21 @@ def test_cors_is_limited_to_frontend_origin(client, settings):
     assert r.headers.get("access-control-allow-origin") == allowed
     r = client.options("/api/calculate", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"})
     assert "access-control-allow-origin" not in r.headers
+
+
+def test_rate_limit_keys_on_forwarded_ip_behind_a_proxy(settings):
+    s = dataclasses.replace(settings, rate_limit_per_minute=1, trust_proxy_headers=True)
+    client = TestClient(create_app(s))
+    first = client.post("/api/calculate", json={"item_id": RIGID_TB, "quantity": 100}, headers={"x-real-ip": "1.1.1.1"})
+    other = client.post("/api/calculate", json={"item_id": RIGID_TB, "quantity": 100}, headers={"x-real-ip": "2.2.2.2"})
+    again = client.post("/api/calculate", json={"item_id": RIGID_TB, "quantity": 100}, headers={"x-real-ip": "1.1.1.1"})
+    assert (first.status_code, other.status_code, again.status_code) == (200, 200, 429)
+
+
+def test_forwarded_ip_ignored_unless_trusted(settings):
+    client = TestClient(create_app(dataclasses.replace(settings, rate_limit_per_minute=1)))
+    statuses = [
+        client.post("/api/calculate", json={"item_id": RIGID_TB, "quantity": 100}, headers={"x-real-ip": ip}).status_code
+        for ip in ("1.1.1.1", "2.2.2.2")
+    ]
+    assert statuses == [200, 429]

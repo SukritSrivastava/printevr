@@ -38,7 +38,9 @@ Import the GitHub repo in Vercel and deploy; `vercel.json` has all the settings,
 
 The sheet and config are bundled into each deployment, so to change prices, commit the updated workbook or `config/products.yaml` and push: Vercel redeploys on its own. `/api/admin/reload` does nothing useful there.
 
-`api/requirements.txt` is what Vercel installs. Keep it the same as `backend/requirements.txt`.
+`api/requirements.txt` is what Vercel installs. Keep it the same as `backend/requirements.txt`. `.python-version` pins the function to Python 3.12.
+
+If the API can't start on Vercel, every `/api/*` call answers `503 STARTUP_FAILED` with the exception, and the full traceback is in the function logs. Open `/api/health` to see it.
 
 ## Tests
 
@@ -70,6 +72,7 @@ A reload that fails (a blank price, a duplicated tier, a product missing from co
 | `ADMIN_TOKEN` | *(unset)* | Required header value for `/api/admin/reload` |
 | `CORS_ORIGIN` | `http://localhost:5173` | Frontend origin(s), comma-separated |
 | `RATE_LIMIT_PER_MINUTE` | `60` | `/api/calculate` calls per minute per IP |
+| `TRUST_PROXY_HEADERS` | `1` on Vercel, else `0` | Rate-limit by the forwarded client IP (`X-Real-IP` / `X-Forwarded-For`) instead of the proxy's |
 | `DATA_FILE`, `CONFIG_FILE` | `data/…xlsx`, `config/products.yaml` | Override file locations |
 | `VITE_API_URL` (frontend build) | *(same origin)* | API base URL when the UI and API are on different hosts |
 

@@ -13,6 +13,9 @@ class Settings:
     admin_token: str | None
     cors_origins: list[str]
     rate_limit_per_minute: int
+    # Behind a proxy (Vercel, nginx) every request comes from the proxy's address, so the
+    # rate limit must key on the client IP the proxy forwards instead.
+    trust_proxy_headers: bool = False
 
 
 def get_settings() -> Settings:
@@ -22,4 +25,5 @@ def get_settings() -> Settings:
         admin_token=os.getenv("ADMIN_TOKEN") or None,
         cors_origins=[o.strip() for o in os.getenv("CORS_ORIGIN", "http://localhost:5173").split(",") if o.strip()],
         rate_limit_per_minute=int(os.getenv("RATE_LIMIT_PER_MINUTE", "60")),
+        trust_proxy_headers=os.getenv("TRUST_PROXY_HEADERS", "1" if os.getenv("VERCEL") else "0") == "1",
     )

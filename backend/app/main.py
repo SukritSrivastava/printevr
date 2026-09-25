@@ -129,8 +129,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/calculate")
     def calculate_route(body: CalculateRequest, request: Request):
-        client = request.client.host if request.client else "unknown"
-        if not limiter.allow(client):
+        if not limiter.allow(client_ip(request, settings.trust_proxy_headers)):
             return error("RATE_LIMITED", "Too many quotes - try again in a minute", 429)
         cat = catalogue_or_503()
         if isinstance(cat, JSONResponse):
@@ -179,6 +178,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok", "data_loaded_at": cat.loaded_at.isoformat(), "items": len(cat.items)}
 
     return app
+
+
+def client_ip(request: Request, trust_proxy_headers: bool) -> str:
+    if trust_proxy_headers:
+        forwarded = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "")
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
+    return request.client.host if request.client else "unknown"
 
 
 def _loaded_at(store: DataStore) -> str | None:
