@@ -8,3 +8,4 @@ frontend/dist/
 ~$*.xlsx
 *.tsbuildinfo
 .vercel/
+.env*.local
