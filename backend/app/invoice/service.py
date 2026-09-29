@@ -214,12 +214,43 @@ def next_bill_no(store: Store, cfg: InvoiceConfig) -> int:
         return store.next_bill_no(s, cfg.bill_no_start)
 
 
-def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> Rendered:
+def _check_print_mode(body: InvoiceCreate) -> None:
     if body.print_mode == "unpaid" and body.payments:
         raise _validation("Print (Unpaid as of now) takes no payments", field="payments")
     if body.print_mode == "paid" and not body.payments:
         raise _validation("Print (Paid) needs at least one payment", field="payments")
 
+
+def create_unsaved(cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> Rendered:
+    """No database: the same checks and PDF as create(), but nothing is stored.
+
+    The server can't count bill numbers without storage, so the client must send one.
+    """
+    _check_print_mode(body)
+    if body.bill_no is None:
+        raise _validation("Enter a Bill No", field="bill_no")
+    lines = reprice(cat, cfg, body.lines)
+    payments = [Payment(**p.model_dump(exclude={"recorded_at"})) for p in body.payments]
+    m = _money(lines, body.billing_type, cfg, payments)
+    doc = InvoiceDocument(
+        bill_no=body.bill_no,
+        invoice_date=body.invoice_date,
+        billing_type=body.billing_type,
+        customer=body.customer,
+        lines=lines,
+        payments=payments,
+        saving_amount=body.saving_amount if body.saving_amount else None,
+    )
+    name = fmt.filename(cfg.filename, body.bill_no, body.customer.business_name, cfg.status_labels[m.status])
+    log.info(
+        "invoice rendered (not stored) bill_no=%s lines=%s total=%s payable=%s received=%s status=%s",
+        body.bill_no, len(lines), m.total, m.payable, m.received, m.status,
+    )
+    return Rendered(bill_no=body.bill_no, status=m.status, filename=name, pdf=render(doc, cfg))
+
+
+def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> Rendered:
+    _check_print_mode(body)
     lines = reprice(cat, cfg, body.lines)
     m = _money(lines, body.billing_type, cfg, body.payments)
     payments = [_payment_json(p) for p in body.payments]

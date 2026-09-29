@@ -59,7 +59,8 @@ def get_settings() -> Settings:
         require_password=bool(os.getenv("VERCEL")),
         staff_passcode=_env("STAFF_PASSCODE", "") or None,
         secret_key=_env("SECRET_KEY", "") or None,
-        # Serverless disks are wiped between requests, so there is no SQLite default on Vercel.
+        # Serverless disks are wiped between requests, so there is no SQLite default on Vercel:
+        # without DATABASE_URL, invoices are rendered and downloaded but not stored.
         database_url=_env("DATABASE_URL", "") or (None if os.getenv("VERCEL") else DEFAULT_DATABASE_URL),
         invoice_config_file=Path(_env("INVOICE_CONFIG_FILE", str(ROOT / "config" / "invoice.yaml"))),
     )

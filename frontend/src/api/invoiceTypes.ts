@@ -84,6 +84,15 @@ export interface InvoiceList {
   offset: number
 }
 
+/** GET /api/invoice-settings: open to the site, no staff token needed. */
+export interface InvoiceSettings {
+  enabled: boolean
+  /** false: invoices are rendered and downloaded but not stored (no list, Bill No typed in). */
+  storage: boolean
+  gst_rate: string | null
+  advance_pct: string | null
+}
+
 export interface NextBillNo {
   next_bill_no: number
   gst_rate: string

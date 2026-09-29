@@ -6,12 +6,13 @@ import { fromPaise, invoiceMoney, suggestedSaving, toPaise, type MoneySettings }
 const PHONE = /^[0-9 +-]{7,20}$/
 
 /** FR-P1 field rules; returns an error per field (empty object = valid). */
-export function checkoutErrors(c: Checkout): Partial<Record<keyof Checkout, string>> {
+export function checkoutErrors(c: Checkout, billNoRequired = false): Partial<Record<keyof Checkout, string>> {
   const e: Partial<Record<keyof Checkout, string>> = {}
   if (!c.business_name.trim()) e.business_name = 'Enter the business name'
   if (!c.address.trim()) e.address = 'Enter the address'
   if (!PHONE.test(c.phone.trim())) e.phone = '7–20 digits, spaces, + or -'
-  if (c.bill_no && !/^\d+$/.test(c.bill_no)) e.bill_no = 'Whole number'
+  if (billNoRequired && !c.bill_no) e.bill_no = 'Enter the Bill No'
+  else if (c.bill_no && !/^[1-9]\d{0,6}$/.test(c.bill_no)) e.bill_no = 'Whole number from 1'
   if (!/^\d{4}-\d{2}-\d{2}$/.test(c.invoice_date)) e.invoice_date = 'Pick a date'
   if (c.saving_amount && toPaise(c.saving_amount) === null) e.saving_amount = 'Amount, up to 2 decimals'
   return e
@@ -58,9 +59,9 @@ function Field({ id, label, max, optional, error, showError, inputMode, type, au
   )
 }
 
-export function CheckoutForm({ settings, showErrors }: { settings: MoneySettings; showErrors: boolean }) {
+export function CheckoutForm({ settings, showErrors, billNoRequired }: { settings: MoneySettings; showErrors: boolean; billNoRequired: boolean }) {
   const { checkout, lines, dispatch } = useCart()
-  const errors = checkoutErrors(checkout)
+  const errors = checkoutErrors(checkout, billNoRequired)
   const withGst = checkout.billing_type === 'with_gst'
   const m = invoiceMoney(lines, withGst, settings)
   const suggested = suggestedSaving(lines)
@@ -85,7 +86,11 @@ export function CheckoutForm({ settings, showErrors }: { settings: MoneySettings
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
           <Field id="bill_no" label="Bill No" inputMode="numeric" {...f('bill_no')} />
-          {!checkout.bill_no && <p className="text-xs text-ink-soft">Blank: the next number is assigned on print.</p>}
+          {billNoRequired ? (
+            <p className="text-xs text-ink-soft">Goes up by one after each print on this device.</p>
+          ) : (
+            !checkout.bill_no && <p className="text-xs text-ink-soft">Blank: the next number is assigned on print.</p>
+          )}
         </div>
         <Field id="invoice_date" label="Invoice date" type="date" {...f('invoice_date')} />
       </div>

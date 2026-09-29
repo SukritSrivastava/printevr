@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useEffect, useMemo, useState } from 'react'
 import { ApiError, calculate, fetchCatalog, fetchSession, logout } from './api/client'
 import type { BillingType, CalculateRequest, Catalog, CatalogProduct } from './api/types'
+import { fetchInvoiceSettings } from './api/invoices'
 import { useCart, CartProvider } from './cart/CartProvider'
 import { AddonList } from './components/AddonList'
 import { AddToCartButton } from './components/AddToCartButton'
@@ -113,16 +114,24 @@ type View = 'calculator' | 'cart' | 'invoices'
 /** Calculator, Cart and Invoices. The calculator stays mounted so its selection survives. */
 function Workspace({ catalog, onSignedOut }: { catalog: Catalog; onSignedOut: () => void }) {
   const [view, setView] = useState<View>('calculator')
+  const settingsQuery = useQuery({
+    queryKey: ['invoice-settings'],
+    queryFn: ({ signal }) => fetchInvoiceSettings(signal),
+    staleTime: Infinity,
+    retry: 1,
+  })
+  // Servers without storage have nothing to list, so the Invoices tab only shows when they store.
+  const showInvoices = settingsQuery.data?.storage ?? false
   return (
     <ToastProvider>
       <StaffProvider>
         <CartProvider>
-          <ViewTabs view={view} onView={setView} />
+          <ViewTabs view={view} onView={setView} showInvoices={showInvoices} />
           <div hidden={view !== 'calculator'}>
             <QuoteDesk catalog={catalog} onSignedOut={onSignedOut} onViewCart={() => setView('cart')} />
           </div>
-          {view === 'cart' && <CartPage onCalculator={() => setView('calculator')} />}
-          {view === 'invoices' && <InvoicesPage />}
+          {view === 'cart' && <CartPage onCalculator={() => setView('calculator')} invoiceSettings={settingsQuery.data} />}
+          {view === 'invoices' && showInvoices && <InvoicesPage />}
           <CustomItemHost />
         </CartProvider>
       </StaffProvider>
@@ -135,7 +144,7 @@ function CustomItemHost() {
   return customItem ? <CustomItemDialog /> : null
 }
 
-function ViewTabs({ view, onView }: { view: View; onView: (v: View) => void }) {
+function ViewTabs({ view, onView, showInvoices }: { view: View; onView: (v: View) => void; showInvoices: boolean }) {
   const { lines } = useCart()
   const tab = (v: View, label: React.ReactNode, extra?: string) => (
     <button
@@ -164,7 +173,7 @@ function ViewTabs({ view, onView }: { view: View; onView: (v: View) => void }) {
             </span>
           </>,
         )}
-        {tab('invoices', 'Invoices')}
+        {showInvoices && tab('invoices', 'Invoices')}
       </div>
     </nav>
   )

@@ -3,6 +3,7 @@ import { ApiError, NetworkError } from './client'
 import type {
   InvoiceCreate,
   InvoiceList,
+  InvoiceSettings,
   InvoicePdf,
   InvoiceStatus,
   NextBillNo,
@@ -82,6 +83,8 @@ export async function staffLogin(passcode: string): Promise<string> {
   setStaffToken(token)
   return token
 }
+
+export const fetchInvoiceSettings = (signal?: AbortSignal) => json<InvoiceSettings>('/api/invoice-settings', { signal })
 
 export const fetchNextBillNo = () => json<NextBillNo>('/api/invoices/next-bill-no')
 

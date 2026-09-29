@@ -236,3 +236,60 @@ def test_manual_quote_line_is_refused(client, auth):
     line = {**k1_line(client), "calc_request": calc}
     r = client.post("/api/invoices", json=invoice_body([line]), headers=auth)
     assert r.status_code == 422 and r.json()["error"]["code"] == "LINE_NOT_PRICEABLE"
+
+
+# ---------------------------------------------------------------- no database (Vercel without DATABASE_URL)
+
+
+@pytest.fixture(scope="module")
+def unsaved_app():
+    return create_app(
+        dataclasses.replace(get_settings(), staff_passcode=PASSCODE, secret_key="test-secret", database_url=None)
+    )
+
+
+@pytest.fixture
+def unsaved(unsaved_app):
+    c = TestClient(unsaved_app)
+    token = c.post("/api/staff/login", json={"passcode": PASSCODE}).json()["token"]
+    return c, {"Authorization": f"Bearer {token}"}
+
+
+def test_settings_endpoint(app, unsaved_app):
+    assert TestClient(app).get("/api/invoice-settings").json() == {
+        "enabled": True, "storage": True, "gst_rate": "0.18", "advance_pct": "80"}
+    assert TestClient(unsaved_app).get("/api/invoice-settings").json()["storage"] is False
+    off = create_app(dataclasses.replace(get_settings(), staff_passcode=None))
+    assert TestClient(off).get("/api/invoice-settings").json()["enabled"] is False
+
+
+def test_unsaved_invoice_downloads_without_storing(unsaved):
+    c, auth = unsaved
+    r = c.post("/api/invoices", json=invoice_body([k1_line(c)], bill_no=19), headers=auth)
+    assert r.status_code == 201 and r.content.startswith(b"%PDF")
+    assert r.headers["x-bill-no"] == "19" and r.headers["x-invoice-status"] == "unpaid"
+    assert 'filename="Invoice_19_Sogat-Jutti-Store_Unpaid.pdf"' in r.headers["content-disposition"]
+    # the same bill number can be printed again (e.g. after a payment): nothing is stored
+    pay = [{"amount": "10000", "date": "2026-09-30", "mode": "upi", "note": None}]
+    r = c.post("/api/invoices", json=invoice_body([k1_line(c)], bill_no=19, print_mode="paid", payments=pay), headers=auth)
+    assert r.status_code == 201 and r.headers["x-invoice-status"] == "part_paid"
+
+
+def test_unsaved_invoice_needs_bill_no_and_keeps_all_checks(unsaved):
+    c, auth = unsaved
+    r = c.post("/api/invoices", json=invoice_body([k1_line(c)]), headers=auth)
+    assert r.status_code == 422 and r.json()["error"]["details"]["field"] == "bill_no"
+    stale = k1_line(c, catalogue_unit_price="70.00", unit_price="70.00")
+    r = c.post("/api/invoices", json=invoice_body([stale], bill_no=19), headers=auth)
+    assert r.status_code == 409 and r.json()["error"]["code"] == "PRICES_CHANGED"
+    pay = [{"amount": "99999", "date": "2026-09-30", "mode": "upi", "note": None}]
+    r = c.post("/api/invoices", json=invoice_body([k1_line(c)], bill_no=19, print_mode="paid", payments=pay), headers=auth)
+    assert r.json()["error"]["code"] == "OVERPAID"
+    assert c.post("/api/invoices", json=invoice_body([k1_line(c)], bill_no=19)).status_code == 401
+
+
+def test_unsaved_server_has_no_invoice_list(unsaved):
+    c, auth = unsaved
+    for path in ("/api/invoices", "/api/invoices/19", "/api/invoices/19/pdf", "/api/invoices/next-bill-no"):
+        r = c.get(path, headers=auth)
+        assert r.status_code == 503 and r.json()["error"]["code"] == "STORAGE_DISABLED", path

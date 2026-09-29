@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, NetworkError, calculate } from '../api/client'
 import { createInvoice, fetchNextBillNo, staffToken } from '../api/invoices'
-import type { CartLine, ChangedLine, InvoiceCreate, PaymentInput } from '../api/invoiceTypes'
+import type { CartLine, ChangedLine, InvoiceCreate, InvoiceSettings, PaymentInput } from '../api/invoiceTypes'
 import { useCart } from '../cart/CartProvider'
 import { saveBlob } from '../lib/download'
 import { DEFAULT_MONEY_SETTINGS, invoiceMoney, toPaise, type MoneySettings } from '../lib/invoiceMoney'
@@ -56,13 +56,20 @@ export const lineReady = (l: CartLine) =>
 
 type Problem = { message: string; retry?: () => void }
 
-export function CartPage({ onCalculator }: { onCalculator: () => void }) {
+export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () => void; invoiceSettings?: InvoiceSettings }) {
   const { lines, checkout, dispatch, openCustomItem } = useCart()
   const withStaff = useStaff()
   const toast = useToast()
   const [stale, setStale] = useState(false)
   const [changed, setChanged] = useState<Set<string>>(new Set())
   const [settings, setSettings] = useState<MoneySettings>(DEFAULT_MONEY_SETTINGS)
+  // Without storage the server can't count bill numbers: the Bill No is typed (and remembered here).
+  const storage = invoiceSettings?.storage ?? true
+  useEffect(() => {
+    if (invoiceSettings?.gst_rate && invoiceSettings.advance_pct) {
+      setSettings({ gstRate: invoiceSettings.gst_rate, advancePct: invoiceSettings.advance_pct })
+    }
+  }, [invoiceSettings])
   const [busy, setBusy] = useState(false)
   const [paying, setPaying] = useState(false)
   const [problem, setProblem] = useState<Problem | null>(null)
@@ -91,17 +98,17 @@ export function CartPage({ onCalculator }: { onCalculator: () => void }) {
     if (opened.current) return
     opened.current = true
     freshPrices(lines).then(applyChanges)
-    if (staffToken()) {
+    if (storage && staffToken()) {
       refreshBillNo()
         .then((n) => {
           if (!checkout.bill_no) dispatch({ type: 'checkout', patch: { bill_no: String(n) } })
         })
         .catch(() => {})
     }
-  }, [lines, checkout.bill_no, applyChanges, refreshBillNo, dispatch])
+  }, [lines, checkout.bill_no, applyChanges, refreshBillNo, dispatch, storage])
 
   const m = invoiceMoney(lines, checkout.billing_type === 'with_gst', settings)
-  const formOk = Object.keys(checkoutErrors(checkout)).length === 0
+  const formOk = Object.keys(checkoutErrors(checkout, !storage)).length === 0
   const ready = lines.length > 0 && lines.every(lineReady) && formOk
 
   const print = async (mode: 'unpaid' | 'paid', payments: PaymentInput[] = []) => {
@@ -132,9 +139,13 @@ export function CartPage({ onCalculator }: { onCalculator: () => void }) {
       setStale(false)
       setChanged(new Set())
       toast(`Invoice ${pdf.billNo} downloaded`)
-      refreshBillNo()
-        .then((n) => dispatch({ type: 'checkout', patch: { bill_no: String(n) } }))
-        .catch(() => dispatch({ type: 'checkout', patch: { bill_no: String(pdf.billNo + 1) } }))
+      if (storage) {
+        refreshBillNo()
+          .then((n) => dispatch({ type: 'checkout', patch: { bill_no: String(n) } }))
+          .catch(() => dispatch({ type: 'checkout', patch: { bill_no: String(pdf.billNo + 1) } }))
+      } else {
+        dispatch({ type: 'checkout', patch: { bill_no: String(pdf.billNo + 1) } })
+      }
     } catch (err) {
       if (err instanceof StaffCancelled) {
         // nothing: they closed the passcode dialog
@@ -216,7 +227,13 @@ export function CartPage({ onCalculator }: { onCalculator: () => void }) {
         ))}
       </div>
 
-      <CheckoutForm settings={settings} showErrors={false} />
+      {invoiceSettings && !invoiceSettings.enabled && (
+        <p role="status" className="rounded-md bg-warn-wash px-4 py-3 text-warn">
+          Invoicing isn't set up on this server.
+        </p>
+      )}
+
+      <CheckoutForm settings={settings} showErrors={false} billNoRequired={!storage} />
 
       <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t border-rule bg-sheet/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:-mx-6 sm:px-6">
         {problem && (
@@ -234,7 +251,9 @@ export function CartPage({ onCalculator }: { onCalculator: () => void }) {
           <PrintButton label="Print (Paid)" busy={busy} disabled={!ready} onClick={() => setPaying(true)} />
         </div>
         <p className="text-center text-xs text-ink-soft">
-          {ready ? 'Downloads the invoice PDF.' : 'Downloads the invoice PDF. Fill in Ship To and give every line a price first.'}
+          {ready
+            ? 'Downloads the invoice PDF.'
+            : `Downloads the invoice PDF. Fill in Ship To${storage ? '' : ' and Bill No'} and give every line a price first.`}
         </p>
       </div>
 

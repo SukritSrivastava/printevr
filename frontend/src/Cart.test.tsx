@@ -64,13 +64,17 @@ const pdfResponse = (billNo: number, status: string, name: string) =>
     },
   })
 
-function mockApi(opts: { quote?: (b: CalculateRequest) => QuoteResponse; invoice?: InvoiceAnswer } = {}): Api {
+const settingsResponse = (storage: boolean) =>
+  new Response(JSON.stringify({ enabled: true, storage, gst_rate: '0.18', advance_pct: '80' }))
+
+function mockApi(opts: { quote?: (b: CalculateRequest) => QuoteResponse; invoice?: InvoiceAnswer; storage?: boolean } = {}): Api {
   const api: Api = { calls: [], invoices: [], logins: 0 }
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/api/session')) return new Response(JSON.stringify({ authenticated: true, password_required: false }))
       if (url.endsWith('/api/catalog')) return new Response(JSON.stringify(catalog))
+      if (url.endsWith('/api/invoice-settings')) return settingsResponse(opts.storage ?? true)
       if (url.endsWith('/api/calculate')) {
         const body = JSON.parse(String(init?.body)) as CalculateRequest
         api.calls.push(body)
@@ -311,6 +315,7 @@ describe('cart', () => {
       vi.fn(async (url: string, init?: RequestInit) => {
         if (url.endsWith('/api/session')) return new Response(JSON.stringify({ authenticated: true, password_required: false }))
         if (url.endsWith('/api/catalog')) return new Response(JSON.stringify(catalog))
+        if (url.endsWith('/api/invoice-settings')) return settingsResponse(true)
         if (url.endsWith('/api/calculate')) return new Response(JSON.stringify(quoteFor(100)))
         if (url.includes('/api/invoices?')) return new Response(JSON.stringify({ invoices: [row], total: 1, limit: 25, offset: 0 }))
         if (url.endsWith('/api/invoices/19/payments')) {
@@ -332,6 +337,26 @@ describe('cart', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Record and download' }))
     await waitFor(() => expect(downloads).toEqual(['Invoice_19_Sogat-Jutti-Store_Paid.pdf']))
     expect(payments).toEqual([{ amount: '118000', date: todayIST(), mode: 'upi', note: null }])
+  })
+
+  it('without storage: Bill No is required, counts up after printing, and there is no Invoices tab', async () => {
+    savedCart([catalogueLine()], SHIP_TO)
+    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
+    const api = mockApi({ storage: false, invoice: (b) => pdfResponse(b.bill_no!, 'unpaid', `Invoice_${b.bill_no}_Sogat-Jutti-Store_Unpaid.pdf`) })
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    await waitFor(() => expect(screen.getByText('Goes up by one after each print on this device.')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Invoices' })).not.toBeInTheDocument()
+    const unpaid = screen.getByRole('button', { name: 'Print (Unpaid as of now)' })
+    expect(unpaid).toBeDisabled()
+    await user.type(screen.getByLabelText('Bill No'), '19')
+    expect(unpaid).toBeEnabled()
+    await user.click(unpaid)
+    await waitFor(() => expect(downloads).toEqual(['Invoice_19_Sogat-Jutti-Store_Unpaid.pdf']))
+    expect(api.invoices[0].bill_no).toBe(19)
+    await waitFor(() => expect(screen.getByLabelText('Bill No')).toHaveValue('20'))
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).checkout.bill_no).toBe('20')
   })
 
   it('starts empty and warns when the saved cart is unreadable', async () => {

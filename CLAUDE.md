@@ -32,5 +32,6 @@ Internal quoting tool. The spec is `docs/BRD-v2.1.pdf` (BRD v2.1); read the rele
   - `invoices` has an extra `business_name` column for search.
   - `GET /api/invoices/next-bill-no` also returns `gst_rate` and `advance_pct` for the cart's summary box.
   - The staff token check (401) and `INVOICING_DISABLED` (503) run in middleware, before body validation.
-  - Invoicing is also disabled (503) when `SECRET_KEY` or `DATABASE_URL` is missing; on Vercel there is no SQLite default.
+  - Invoicing is also disabled (503) when `SECRET_KEY` is missing.
+  - **No-storage mode** (not in the BRD; the production site on Vercel runs this way, by the owner's choice): without `DATABASE_URL`, `POST /api/invoices` renders and returns the PDF without saving it, and `bill_no` is required. Routes that read stored invoices answer `503 STORAGE_DISABLED`. `GET /api/invoice-settings` (no staff token) tells the UI, which then requires the Bill No and hides the Invoices tab.
   - Bill No is only pre-filled once staff are signed in (the endpoint needs the token); blank means "assign the next one on print".

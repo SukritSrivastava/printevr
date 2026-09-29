@@ -1,8 +1,12 @@
 """Invoice HTTP routes (BRD-cart-invoice 8.4), mounted under /api.
 
 Every /api/invoices route needs `Authorization: Bearer <staff token>`. Without
-STAFF_PASSCODE (or SECRET_KEY, a database or the invoice config) they answer
-503 INVOICING_DISABLED and the calculator carries on as before.
+STAFF_PASSCODE (or SECRET_KEY, or the invoice config) they answer 503
+INVOICING_DISABLED and the calculator carries on as before.
+
+Without DATABASE_URL (the default on Vercel) invoices aren't stored: POST /api/invoices
+still renders and returns the PDF, the client supplies the Bill No, and the routes that
+read stored invoices answer 503 STORAGE_DISABLED.
 """
 import logging
 import threading
@@ -59,13 +63,13 @@ def create_router(
             return "Invoicing isn't set up on this server (STAFF_PASSCODE)"
         if not settings.secret_key:
             return "Invoicing isn't set up on this server (SECRET_KEY)"
-        if not settings.database_url:
-            return "Invoicing isn't set up on this server (DATABASE_URL)"
         if invoice_cfg is None:
             return "Invoicing isn't set up on this server (config/invoice.yaml failed to load)"
         return None
 
-    def get_store() -> Store:
+    def get_store() -> Store | None:
+        if not settings.database_url:
+            return None
         with lock:
             if state["store"] is None:
                 state["store"] = Store(settings.database_url)
@@ -80,12 +84,15 @@ def create_router(
             return error("AUTH_REQUIRED", "Enter the staff passcode to continue", 401)
         return None
 
-    def run(request: Request, action: Callable[[Store], object]):
+    def run(request: Request, action: Callable[[Store | None], object], needs_store: bool = True):
         blocked = guard(request)
         if blocked:
             return blocked
+        store = get_store()
+        if needs_store and store is None:
+            return error("STORAGE_DISABLED", "Invoices aren't saved on this server", 503)
         try:
-            return action(get_store())
+            return action(store)
         except InvoiceError as exc:
             log.info("invoice error code=%s", exc.code)
             return error(exc.code, exc.message, exc.http_status, exc.details)
@@ -103,6 +110,18 @@ def create_router(
         token, expires = auth.issue(settings.secret_key, settings.staff_passcode)
         return {"token": token, "expires_at": datetime.fromtimestamp(expires, timezone.utc).isoformat()}
 
+    @router.get("/invoice-settings")
+    def invoice_settings():
+        """Open to the site (no staff token): whether invoicing is on, whether invoices are
+        stored, and the money rules for the cart's summary box."""
+        reason = disabled_reason()
+        return {
+            "enabled": reason is None,
+            "storage": reason is None and bool(settings.database_url),
+            "gst_rate": str(invoice_cfg.gst_rate) if invoice_cfg else None,
+            "advance_pct": str(invoice_cfg.advance_pct) if invoice_cfg else None,
+        }
+
     @router.get("/invoices/next-bill-no")
     def next_bill_no(request: Request):
         # The money rules ride along so the cart's summary box uses the same numbers as the PDF.
@@ -117,13 +136,15 @@ def create_router(
 
     @router.post("/invoices")
     def create_invoice(body: InvoiceCreate, request: Request):
-        def action(store: Store):
+        def action(store: Store | None):
             cat = catalogue()
             if cat is None:
                 return error("DATA_NOT_LOADED", "Price data failed to load", 503)
+            if store is None:
+                return pdf_response(service.create_unsaved(cat, invoice_cfg, body), 201)
             return pdf_response(service.create(store, cat, invoice_cfg, body), 201)
 
-        return run(request, action)
+        return run(request, action, needs_store=False)
 
     @router.get("/invoices")
     def list_invoices(
