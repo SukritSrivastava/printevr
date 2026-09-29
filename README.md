@@ -55,12 +55,39 @@ npx vercel env add SITE_PASSWORD production   # type the new one
 
 Then redeploy. Changing the password signs everyone out.
 
+## Cart and invoices
+
+Staff can add priced articles (and hand-typed custom items) to a cart, fill in Ship To, and download one invoice PDF in Printevr's own format: **Print (Unpaid as of now)** or **Print (Paid)**. The **Invoices** tab lists issued invoices, re-downloads them and records payments under the same bill number. Spec: `docs/BRD-cart-invoice.md`.
+
+- The server re-prices every calculator line before printing; a changed price answers `409 PRICES_CHANGED` and nothing is saved. A price edited in the cart is allowed and recorded (`price_edited`).
+- Bill numbers start at 19 (`config/invoice.yaml` → `bill_no_start`) and are never reused.
+- PDFs are drawn with ReportLab from `backend/app/invoice/layout.py` (every coordinate) and `config/invoice.yaml` (every word). Fonts: Montserrat (SIL OFL) in `backend/assets/fonts/`.
+- Everything under `/api/invoices` needs the **staff passcode**, asked once per browser tab. The calculator stays open as before.
+
+### Turning invoicing on
+
+| Variable | Needed | Meaning |
+|---|---|---|
+| `STAFF_PASSCODE` | yes | The staff passcode. Unset = invoicing off (`503 INVOICING_DISABLED`) |
+| `SECRET_KEY` | yes, with a passcode | Signs staff tokens (12 hours). Any long random string |
+| `DATABASE_URL` | on Vercel | Where invoices are kept. Default `sqlite:///./var/invoices.db` (repo root) |
+
+**Hosting note.** On a normal server or with `docker compose`, the SQLite default is fine: `var/` is mounted as a volume, so invoices survive restarts. **On Vercel, local disk is wiped between requests**, so set `DATABASE_URL` to a hosted Postgres (Neon, Supabase or Vercel Postgres), e.g. `postgresql://user:pass@host/db?sslmode=require`. Without it, invoicing stays off there. Tables are created on first use.
+
+```sh
+npx vercel env add STAFF_PASSCODE production
+npx vercel env add SECRET_KEY production
+npx vercel env add DATABASE_URL production
+```
+
 ## Tests
 
 ```sh
-cd backend && python -m pytest     # 85 tests: every BRD section 11 case, all 950 sheet prices, every API error code
-cd frontend && npm test            # T1, T5 and C1 on screen, debounce, retry, copy text
+cd backend && python -m pytest     # 149 tests: BRD section 11, all sheet prices, invoice golden PDF (G1-G5), money (P1-P8), drafts (K1-K6), API (A1-A11)
+cd frontend && npm test            # calculator on screen, plus cart and printing U1-U7 and the Invoices page
 ```
+
+The golden tests compare the rendered Sogat Jutti invoice with `backend/tests/fixtures/invoice/reference_bill18.pdf`; on a raster mismatch they save an overlay PNG to `backend/tests/output/`.
 
 ## Changing prices and settings
 
@@ -69,6 +96,8 @@ cd frontend && npm test            # T1, T5 and C1 on screen, debounce, retry, c
 | A price | The product tab in the workbook (Master prices are formulas). Save it in Excel, Google Sheets or LibreOffice so the values are recalculated. | Reload |
 | A flag's status | `Review Flags` → `Status` (anything other than `Open` clears the warning) | Reload |
 | GST, surcharge, rounding, add-ons, yields, policies | `config/products.yaml` | Reload |
+| Invoice titles and unit labels per product | `config/products.yaml` → `invoice_title`, `invoice_unit_label` | Reload |
+| Invoice wording, From address, footer, GST rate on invoices, 80/20 split, first bill number | `config/invoice.yaml` | Restart |
 
 **Reload** without a restart:
 

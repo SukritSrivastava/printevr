@@ -14,6 +14,8 @@ interface Props {
   loading: boolean
   onUseQuantity: (qty: number) => void
   onRetry: () => void
+  /** Shown under the totals, and under a manual quote (Add to cart / Add as custom item). */
+  action?: React.ReactNode
 }
 
 function RegMarks() {
@@ -28,7 +30,7 @@ function RegMarks() {
   )
 }
 
-export function ReceiptCard({ state, loading, onUseQuantity, onRetry }: Props) {
+export function ReceiptCard({ state, loading, onUseQuantity, onRetry, action }: Props) {
   return (
     <section
       className="ticket mx-2.5 my-2.5 px-5 py-6 sm:px-7"
@@ -60,10 +62,11 @@ export function ReceiptCard({ state, loading, onUseQuantity, onRetry }: Props) {
           <h2 className="type-expanded text-2xl font-bold">Needs a manual quote</h2>
           <p>{state.response.message}.</p>
           <p className="text-sm text-ink-soft">{state.response.data.product.description}</p>
+          {action}
         </div>
       )}
       {state.kind === 'response' && state.response.status === 'success' && (
-        <Quote q={state.response.data} onUseQuantity={onUseQuantity} />
+        <Quote q={state.response.data} onUseQuantity={onUseQuantity} action={action} />
       )}
     </section>
   )
@@ -78,7 +81,7 @@ function Row({ label, children, strong }: { label: React.ReactNode; children: Re
   )
 }
 
-function Quote({ q, onUseQuantity }: { q: QuoteData; onUseQuantity: (qty: number) => void }) {
+function Quote({ q, onUseQuantity, action }: { q: QuoteData; onUseQuantity: (qty: number) => void; action?: React.ReactNode }) {
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle')
   const unit = q.quantity.sale_unit
   const p = q.pricing
@@ -194,6 +197,8 @@ function Quote({ q, onUseQuantity }: { q: QuoteData; onUseQuantity: (qty: number
         </div>
         <Row label="Production time">{q.production_time}</Row>
       </dl>
+
+      {action}
 
       <button
         type="button"

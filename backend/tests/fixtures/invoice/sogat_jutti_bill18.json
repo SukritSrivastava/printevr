@@ -1,0 +1,76 @@
+{
+  "_comment": "Golden fixture: rendering this must reproduce reference_bill18.pdf (see BRD section 11). Money values are strings (Decimal).",
+  "bill_no": 18,
+  "invoice_date": "2026-09-14",
+  "billing_type": "without_gst",
+  "customer": {
+    "business_name": "Sogat Jutti Store",
+    "contact_person": "Ramjot Chhokar",
+    "address": "Sector 67, Mohali, India, 160062",
+    "phone": "+91 95010 60618"
+  },
+  "lines": [
+    {
+      "source": "custom",
+      "title": "Customised corrugated box printing",
+      "specs": [
+        { "label": "Size", "value": "12.5*9.5*4.5 in (LxWxH)", "emphasis": true },
+        { "label": "Quantity", "value": "1000 pcs.", "emphasis": true }
+      ],
+      "customisations": [
+        { "label": "Box opening", "value": "Top & bottom opening." },
+        { "label": "Paper material (upper top of the box)", "value": "3ply corrugation , SBS / texured paper customised color." },
+        { "label": "Paper material (bottom base of the box)", "value": "3ply corrugation , SBS / texured paper customised color" },
+        { "label": "Logo formation", "value": "Gold foiled logo (on the upper top of the box)" }
+      ],
+      "quantity": 1000,
+      "unit_label": "boxes",
+      "middle": { "kind": "note", "text": "Without ribbon closing :-" },
+      "unit_price": "140",
+      "catalogue_unit_price": null
+    },
+    {
+      "source": "custom",
+      "title": "Customised thankyou cards printing",
+      "specs": [
+        { "label": "Material", "value": "300 GSM, SBS paper, grade-1." },
+        { "label": "Side printing", "value": "Single side printing." },
+        { "label": "Size", "value": "6*4 in (LxWxH)", "emphasis": true },
+        { "label": "Printing", "value": "Multicolour printing ( 4 colour CMYK)" },
+        { "label": null, "value": "Gloss/ matte lamination" }
+      ],
+      "customisations": [],
+      "quantity": 1000,
+      "unit_label": "cards",
+      "middle": { "kind": "reference_price", "amount": "15" },
+      "unit_price": "8",
+      "catalogue_unit_price": null
+    }
+  ],
+  "payments": [
+    { "amount": "30000", "date": "2026-09-09", "mode": "upi", "note": null }
+  ],
+  "saving_amount": "30000",
+  "expected": {
+    "total": "148000",
+    "gst_amount": "0",
+    "payable": "148000",
+    "advance_pct": 80,
+    "advance_amount": "118400",
+    "balance_amount": "29600",
+    "received": "30000",
+    "pending_out_of_advance": "88400",
+    "status": "part_paid",
+    "payment_lines": [
+      "Total Amount:- Rs. 148000/-",
+      "80% amount pending (before printing & after sample & final confirmation):-  118400/-",
+      "Recieved Amount:- Rs. 30000/- (9 September 2026)",
+      "Amount Pending (out of 80%) :- 118400/-  (-)  30000/-  =  88400/-",
+      "20% Amount:- Rs. 29600/- (Before Dispatching the Order)"
+    ],
+    "line_cells": [
+      { "quantity": "1000", "unit": "(BOXES)", "middle": "WITHOUT RIBBON CLOSING :-", "price": "140", "subtotal": "140000" },
+      { "quantity": "1000", "unit": "(CARDS)", "middle": "15", "price": "08", "subtotal": "8000" }
+    ]
+  }
+}

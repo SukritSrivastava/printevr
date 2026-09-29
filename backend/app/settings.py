@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_DATABASE_URL = "sqlite:///./var/invoices.db"  # relative to the repo root
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,11 @@ class Settings:
     # On a public host the site must never run open by accident: without a password,
     # every protected route refuses to answer.
     require_password: bool = False
+    # Invoicing (docs/BRD-cart-invoice.md section 8.6). No passcode = invoicing off.
+    staff_passcode: str | None = None
+    secret_key: str | None = None
+    database_url: str | None = None
+    invoice_config_file: Path = ROOT / "config" / "invoice.yaml"
 
 
 def _env(name: str, default: str) -> str:
@@ -51,4 +57,9 @@ def get_settings() -> Settings:
         session_secret=_env("SESSION_SECRET", ""),
         session_days=_env_int("SESSION_DAYS", 7),
         require_password=bool(os.getenv("VERCEL")),
+        staff_passcode=_env("STAFF_PASSCODE", "") or None,
+        secret_key=_env("SECRET_KEY", "") or None,
+        # Serverless disks are wiped between requests, so there is no SQLite default on Vercel.
+        database_url=_env("DATABASE_URL", "") or (None if os.getenv("VERCEL") else DEFAULT_DATABASE_URL),
+        invoice_config_file=Path(_env("INVOICE_CONFIG_FILE", str(ROOT / "config" / "invoice.yaml"))),
     )

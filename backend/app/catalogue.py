@@ -70,6 +70,9 @@ class Product:
     addons: list[Addon]
     notes: list[str]
     items: list[Item] = field(default_factory=list)
+    # Invoice text (docs/BRD-cart-invoice.md FR-C1); None = built from the name / sale unit.
+    invoice_title: str | None = None
+    invoice_unit_label: str | None = None
 
     @property
     def supports_custom(self) -> bool:

@@ -1,0 +1,41 @@
+# Invoice settings and business text (docs/BRD-cart-invoice.md section 8.5).
+# Wording and spacing are copied from Printevr's own invoice on purpose, including
+# "Recieved" (decision D3). `**...**` marks bold text.
+
+bill_no_start: 19
+gst_rate: 0.18
+advance_pct: 80
+pad_single_digit_unit_price: true
+filename: "Invoice_{bill_no}_{business}_{status}.pdf"
+status_labels: { unpaid: Unpaid, part_paid: Part-paid, paid: Paid }
+unit_plurals: { box: boxes, bag: bags, card: cards, roll: rolls, sheet: sheets, label: labels, piece: pcs, pc: pcs, "sq ft": "sq ft" }
+from_lines:
+  - "#Plot no - 1795 2nd Floor,"
+  - "Hallo Mazra 160002"
+  - "Chandigarh"
+  - "Ph- 6239645912, 7696771179"
+payment_terms:
+  title: "PAYMENT TERMS     ({billing_label})"
+  billing_labels: { without_gst: "WITHOUT GST BILLING", with_gst: "WITH GST BILLING" }
+  total: "**Total Amount:- Rs. {payable}/-**"
+  advance: "**{advance_pct}% amount pending (before printing & after sample & final confirmation):-  {advance}/-**"
+  received: "Recieved Amount:- Rs. {amount}/- ({date})"
+  pending: "Amount Pending (out of {advance_pct}%) :- {advance}/-  (-)  {applied}/-  =  **{pending}/-**"
+  balance: "{balance_pct}% Amount:- Rs. {balance}/- (Before Dispatching the Order)"
+  balance_after_excess: "{balance_pct}% Amount:- Rs. {balance}/-  (-)  {excess}/-  =  **{balance_due}/-** (Before Dispatching the Order)"
+  paid_in_full: "**Payment Status:- PAID IN FULL**"
+totals:
+  gst_label: "GST ({gst_pct}%):"
+saving_lines:
+  - "TOTAL **SAVING** YOU DID FROM GETTING"
+  - "YOUR PRINTING DONE FROM **PRINTEVR** IS"
+footer:
+  thanks: "THANK YOU FOR YOUR BUSINESS."
+  contact_prefix: "If you have any questions, please contact us at "
+  email: "Printevrventure@gmail.com"
+  advance_note: "100% OF THE PAYMENT WILL BE TAKEN IN ADVANCE FOR PRINTING ORDERS"
+  colour_note: "Colours can vary up to 10-20% from Digital to Print."
+  late_note: "Late payment will attract additional 5% Charges"
+  terms_note: "Terms & Condition applied (Refer to T&C pdf)"
+  gst_note_without_gst: "Note:-  18%  gst as applicable will be extra on total"
+  gst_note_with_gst: "Note:-  18%  gst has been added to the total"

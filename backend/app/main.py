@@ -14,7 +14,11 @@ from . import auth
 from .catalogue import Catalogue
 from .loader import LoaderError, load
 from .models import CalculateRequest, LoginRequest
-from .quote import QuoteError, QuoteInput, calculate
+from .invoice import config as invoice_config
+from .invoice.from_quote import quote_with_drafts
+from .invoice.routes import EXPOSED_HEADERS, LOGIN_ATTEMPTS_PER_MINUTE as STAFF_LOGINS_PER_MINUTE
+from .invoice.routes import create_router as invoice_router
+from .quote import QuoteError
 from .settings import Settings, get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -82,6 +86,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     login_limiter = RateLimiter(LOGIN_ATTEMPTS_PER_MINUTE)
 
+    # Invoice settings; the calculator keeps working if this file is broken.
+    try:
+        invoice_cfg = invoice_config.load(settings.invoice_config_file)
+        unit_plurals = invoice_cfg.unit_plurals
+    except invoice_config.InvoiceConfigError as exc:
+        invoice_cfg, unit_plurals = None, {}
+        log.error("INVOICE CONFIG NOT LOADED: %s", exc)
+
     app = FastAPI(title="Printevr Pricing API", version="2.1")
     app.state.store = store
     app.state.limiter = limiter
@@ -147,8 +159,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type", "X-Admin-Token"],
+        allow_headers=["Content-Type", "X-Admin-Token", "Authorization"],
+        expose_headers=EXPOSED_HEADERS,
     )
+
+    router, app.state.invoices = invoice_router(
+        settings,
+        invoice_cfg,
+        catalogue=lambda: store.catalogue,
+        error=error,
+        client_ip=lambda request: client_ip(request, settings.trust_proxy_headers),
+        login_limiter=RateLimiter(STAFF_LOGINS_PER_MINUTE),
+    )
+    app.include_router(router)
+
+    @app.middleware("http")
+    async def invoicing_switch(request: Request, call_next):
+        # Switched off (503) and staff token (401) are checked before body validation, so
+        # neither a disabled server nor a missing token ever answers with field errors.
+        path = request.url.path
+        if request.method != "OPTIONS":
+            if path == "/api/staff/login":
+                reason = app.state.invoices["disabled_reason"]()
+                if reason:
+                    return error("INVOICING_DISABLED", reason, 503)
+            elif path.startswith("/api/invoices"):
+                blocked = app.state.invoices["guard"](request)
+                if blocked:
+                    return blocked
+        return await call_next(request)
 
     @app.exception_handler(RequestValidationError)
     async def on_validation_error(_: Request, exc: RequestValidationError):
@@ -199,18 +238,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return cat
         started = time.perf_counter()
         try:
-            result = calculate(
-                cat,
-                QuoteInput(
-                    product_id=body.product_id,
-                    item_id=body.item_id,
-                    options=body.options,
-                    custom_dimensions=body.custom_dimensions.model_dump() if body.custom_dimensions else None,
-                    quantity=body.quantity,
-                    addons=body.addons,
-                    billing_type=body.billing_type,
-                ),
-            )
+            result = quote_with_drafts(cat, body, unit_plurals)
         except QuoteError as exc:
             calc_log.info("item=%s qty=%s error=%s", body.item_id or body.product_id, body.quantity, exc.code)
             return error(exc.code, exc.message, exc.http_status, exc.details)

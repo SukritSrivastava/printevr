@@ -1,4 +1,5 @@
 // Shapes of the pricing API (BRD section 7). Money is always a string.
+import type { InvoiceLineDraft } from './invoiceTypes'
 
 export type CustomDimsKind = 'none' | 'box' | 'bag' | 'flat' | 'area_sqft'
 export type OptionKey = 'option_1' | 'option_2'
@@ -64,6 +65,12 @@ export interface CustomDimensions {
   unit: 'in' | 'cm'
 }
 
+export interface OutdoorSize {
+  width: number
+  height: number
+  pieces: number
+}
+
 export interface CalculateRequest {
   product_id: string
   item_id: string | null
@@ -72,6 +79,8 @@ export interface CalculateRequest {
   quantity: number
   addons: string[]
   billing_type: BillingType
+  /** Outdoor only: what the UI multiplied into square feet (for the invoice line's Size text). */
+  outdoor?: OutdoorSize | null
 }
 
 export interface QuoteWarning {
@@ -123,6 +132,8 @@ export interface QuoteData {
   production_time: string
   warnings: QuoteWarning[]
   notes: string[]
+  /** Invoice line drafts: [0] is the article, the rest are its per-order add-ons. */
+  invoice_lines?: InvoiceLineDraft[]
 }
 
 export type QuoteResponse =

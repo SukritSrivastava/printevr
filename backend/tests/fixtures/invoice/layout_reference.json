@@ -1,0 +1,806 @@
+{
+ "source": "reference_bill18.pdf (Canva export, Bill No 18, Sogat Jutti Store)",
+ "units": "PDF points; origin top-left of the visible page; y grows downward; text y = BASELINE",
+ "page": {
+  "width": 595.5,
+  "height": 842.25
+ },
+ "coordinate_note": "The reference PDF has MediaBox [0 7.83 595.5 850.08]. pdfplumber reports rect tops 7.83pt too small and char matrices 7.83pt too large for this file. All values here are already corrected to the visible page. When comparing against the reference in tests, apply the same correction, or compare rasterised images instead.",
+ "text": [
+  {
+   "text": "INVOICE",
+   "x0": 234.65,
+   "x1": 358.06,
+   "baseline": 61.59,
+   "font": "Agrandir-GrandMedium",
+   "size": 24.01
+  },
+  {
+   "text": "Date",
+   "x0": 28.55,
+   "x1": 56.83,
+   "baseline": 78.22,
+   "font": "Montserrat-Regular",
+   "size": 12.0
+  },
+  {
+   "text": ":  14 SEP , 2026",
+   "x0": 73.49,
+   "x1": 159.16,
+   "baseline": 78.22,
+   "font": "Montserrat-Regular",
+   "size": 12.0
+  },
+  {
+   "text": "Bill No",
+   "x0": 28.55,
+   "x1": 67.62,
+   "baseline": 96.23,
+   "font": "Montserrat-Regular",
+   "size": 12.0
+  },
+  {
+   "text": ":  18",
+   "x0": 73.49,
+   "x1": 94.41,
+   "baseline": 96.23,
+   "font": "Montserrat-Regular",
+   "size": 12.0
+  },
+  {
+   "text": "FROM - PRINTEVR",
+   "x0": 353.01,
+   "x1": 475.34,
+   "baseline": 141.38,
+   "font": "Montserrat-Regular",
+   "size": 13.51
+  },
+  {
+   "text": "SHIP TO",
+   "x0": 39.4,
+   "x1": 95.64,
+   "baseline": 143.39,
+   "font": "Montserrat-Regular",
+   "size": 13.94
+  },
+  {
+   "text": "#Plot no - 1795 2nd Floor,",
+   "x0": 354.39,
+   "x1": 486.56,
+   "baseline": 160.08,
+   "font": "Montserrat-Regular",
+   "size": 10.55
+  },
+  {
+   "text": "SOGAT JUTTI STORE,",
+   "x0": 39.4,
+   "x1": 129.15,
+   "baseline": 164.21,
+   "font": "Montserrat-Bold",
+   "size": 8.26
+  },
+  {
+   "text": "Hallo Mazra 160002",
+   "x0": 354.39,
+   "x1": 456.32,
+   "baseline": 175.26,
+   "font": "Montserrat-Regular",
+   "size": 10.55
+  },
+  {
+   "text": "RAMJOT CHHOKAR,",
+   "x0": 39.4,
+   "x1": 125.63,
+   "baseline": 176.6,
+   "font": "Montserrat-Bold",
+   "size": 8.26
+  },
+  {
+   "text": "SECTOR 67, MOHALI, INDIA, 160062",
+   "x0": 39.4,
+   "x1": 185.36,
+   "baseline": 189.0,
+   "font": "Montserrat-Regular",
+   "size": 8.26
+  },
+  {
+   "text": "Chandigarh",
+   "x0": 354.39,
+   "x1": 417.3,
+   "baseline": 190.43,
+   "font": "Montserrat-Regular",
+   "size": 10.55
+  },
+  {
+   "text": "+91 95010 60618,",
+   "x0": 39.4,
+   "x1": 109.15,
+   "baseline": 201.39,
+   "font": "Montserrat-Bold",
+   "size": 8.26
+  },
+  {
+   "text": "Ph- 6239645912, 7696771179",
+   "x0": 354.39,
+   "x1": 499.45,
+   "baseline": 205.61,
+   "font": "Montserrat-Regular",
+   "size": 10.55
+  },
+  {
+   "text": "SUBTOTAL",
+   "x0": 488.55,
+   "x1": 537.18,
+   "baseline": 263.2,
+   "font": "Montserrat-Regular",
+   "size": 9.13
+  },
+  {
+   "text": "PRICE PER PCS",
+   "x0": 412.87,
+   "x1": 482.11,
+   "baseline": 263.24,
+   "font": "Montserrat-Regular",
+   "size": 9.1
+  },
+  {
+   "text": "QUANTITY",
+   "x0": 264.37,
+   "x1": 318.48,
+   "baseline": 264.36,
+   "font": "Montserrat-Regular",
+   "size": 10.38
+  },
+  {
+   "text": "ITEM",
+   "x0": 43.47,
+   "x1": 68.34,
+   "baseline": 266.58,
+   "font": "Montserrat-Regular",
+   "size": 10.11
+  },
+  {
+   "text": "CUSTOMISED CORRUGATED BOX PRINTING",
+   "x0": 34.73,
+   "x1": 258.21,
+   "baseline": 297.75,
+   "font": "Montserrat-Bold",
+   "size": 9.8
+  },
+  {
+   "text": "WITHOUT RIBBON CLOSING :-",
+   "x0": 313.15,
+   "x1": 432.98,
+   "baseline": 304.1,
+   "font": "Montserrat-Bold",
+   "size": 7.66
+  },
+  {
+   "text": "1000",
+   "x0": 278.71,
+   "x1": 302.17,
+   "baseline": 304.92,
+   "font": "Montserrat-Bold",
+   "size": 9.66
+  },
+  {
+   "text": "140",
+   "x0": 439.9,
+   "x1": 456.17,
+   "baseline": 304.92,
+   "font": "Montserrat-Regular",
+   "size": 9.66
+  },
+  {
+   "text": "140000",
+   "x0": 494.38,
+   "x1": 531.05,
+   "baseline": 304.92,
+   "font": "Montserrat-Bold",
+   "size": 9.66
+  },
+  {
+   "text": "SIZE:-  12.5*9.5*4.5  IN (LXWXH)",
+   "x0": 46.2,
+   "x1": 110.12,
+   "baseline": 309.59,
+   "font": "Montserrat-Bold",
+   "size": 4.0
+  },
+  {
+   "text": "(BOXES)",
+   "x0": 278.99,
+   "x1": 303.04,
+   "baseline": 311.01,
+   "font": "Montserrat-Regular",
+   "size": 5.74
+  },
+  {
+   "text": "QUANTITY:-  1000 PCS.",
+   "x0": 46.2,
+   "x1": 93.17,
+   "baseline": 314.92,
+   "font": "Montserrat-Bold",
+   "size": 4.0
+  },
+  {
+   "text": "CUSTOMISATIONS:-",
+   "x0": 39.4,
+   "x1": 80.18,
+   "baseline": 325.59,
+   "font": "Montserrat-Bold",
+   "size": 4.0
+  },
+  {
+   "text": "BOX OPENING:-",
+   "x0": 46.2,
+   "x1": 79.07,
+   "baseline": 330.93,
+   "font": "Montserrat-Bold",
+   "size": 4.0
+  },
+  {
+   "text": "TOP & BOTTOM OPENING.",
+   "x0": 80.21,
+   "x1": 133.27,
+   "baseline": 330.93,
+   "font": "Montserrat-Regular",
+   "size": 4.0
+  },
+  {
+   "text": "PAPER MATERIAL (UPPER TOP OF THE BOX):-",
+   "x0": 46.2,
+   "x1": 141.81,
+   "baseline": 336.27,
+   "font": "Montserrat-Bold",
+   "size": 4.0
+  },
+  {
+   "text": "3PLY CORRUGATION , SBS / TEXURED PAPER",
+   "x0": 142.95,
+   "x1": 234.49,
+   "baseline": 336.27,
+   "font": "Montserrat-Regular",
+   "size": 4.0
+  },
+  {
+   "text": "CUSTOMISED COLOR.",
+   "x0": 143.19,
+   "x1": 187.57,
+   "baseline": 341.6,
+   "font": "Montserrat-Regular",
+   "size": 4.0
+  },
+  {
+   "text": "PAPER MATERIAL (BOTTOM BASE OF THE BOX):-",
+   "x0": 46.2,
+   "x1": 148.34,
+   "baseline": 346.94,
+   "font": "Montserrat-Bold",
+   "size": 4.0
+  },
+  {
+   "text": "3PLY CORRUGATION , SBS / TEXURED PAPER",
+   "x0": 149.48,
+   "x1": 241.02,
+   "baseline": 346.94,
+   "font": "Montserrat-Regular",
+   "size": 4.0
+  },
+  {
+   "text": "CUSTOMISED COLOR",
+   "x0": 150.53,
+   "x1": 194.06,
+   "baseline": 352.27,
+   "font": "Montserrat-Regular",
+   "size": 4.0
+  },
+  {
+   "text": "LOGO FORMATION:-",
+   "x0": 46.2,
+   "x1": 88.34,
+   "baseline": 357.61,
+   "font": "Montserrat-Bold",
+   "size": 4.0
+  },
+  {
+   "text": "GOLD FOILED LOGO (ON THE UPPER TOP OF THE BOX)",
+   "x0": 89.47,
+   "x1": 202.23,
+   "baseline": 357.61,
+   "font": "Montserrat-Regular",
+   "size": 4.0
+  },
+  {
+   "text": "CUSTOMISED THANKYOU CARDS PRINTING",
+   "x0": 37.7,
+   "x1": 288.0,
+   "baseline": 395.05,
+   "font": "Montserrat-Bold",
+   "size": 11.0
+  },
+  {
+   "text": "MATERIAL:-",
+   "x0": 55.46,
+   "x1": 92.03,
+   "baseline": 407.7,
+   "font": "Montserrat-Bold",
+   "size": 6.0
+  },
+  {
+   "text": "300 GSM, SBS PAPER, GRADE-1.",
+   "x0": 93.61,
+   "x1": 189.01,
+   "baseline": 407.7,
+   "font": "Montserrat-Regular",
+   "size": 6.0
+  },
+  {
+   "text": "SIDE PRINTING:-",
+   "x0": 55.46,
+   "x1": 106.62,
+   "baseline": 415.71,
+   "font": "Montserrat-Bold",
+   "size": 6.0
+  },
+  {
+   "text": "SINGLE SIDE PRINTING.",
+   "x0": 109.77,
+   "x1": 181.36,
+   "baseline": 415.71,
+   "font": "Montserrat-Regular",
+   "size": 6.0
+  },
+  {
+   "text": "SIZE:-",
+   "x0": 55.46,
+   "x1": 73.21,
+   "baseline": 423.71,
+   "font": "Montserrat-Bold",
+   "size": 6.0
+  },
+  {
+   "text": "6*4 IN (LXWXH)",
+   "x0": 76.36,
+   "x1": 125.46,
+   "baseline": 423.71,
+   "font": "Montserrat-Bold",
+   "size": 6.0
+  },
+  {
+   "text": "1000",
+   "x0": 301.44,
+   "x1": 323.31,
+   "baseline": 425.36,
+   "font": "Montserrat-Bold",
+   "size": 9.0
+  },
+  {
+   "text": "15",
+   "x0": 383.05,
+   "x1": 392.0,
+   "baseline": 426.26,
+   "font": "Montserrat-Regular",
+   "size": 9.66
+  },
+  {
+   "text": "08",
+   "x0": 445.0,
+   "x1": 457.56,
+   "baseline": 426.26,
+   "font": "Montserrat-Regular",
+   "size": 9.66
+  },
+  {
+   "text": "8000",
+   "x0": 513.77,
+   "x1": 539.82,
+   "baseline": 426.26,
+   "font": "Montserrat-Bold",
+   "size": 9.66
+  },
+  {
+   "text": "PRINTING:-",
+   "x0": 55.46,
+   "x1": 90.13,
+   "baseline": 431.71,
+   "font": "Montserrat-Bold",
+   "size": 6.0
+  },
+  {
+   "text": "MULTICOLOUR PRINTING ( 4 COLOUR CMYK)",
+   "x0": 93.29,
+   "x1": 230.63,
+   "baseline": 431.71,
+   "font": "Montserrat-Regular",
+   "size": 6.0
+  },
+  {
+   "text": "(CARDS)",
+   "x0": 299.82,
+   "x1": 324.93,
+   "baseline": 434.31,
+   "font": "Montserrat-Regular",
+   "size": 5.9
+  },
+  {
+   "text": "GLOSS/ MATTE LAMINATION",
+   "x0": 55.46,
+   "x1": 141.9,
+   "baseline": 439.72,
+   "font": "Montserrat-Regular",
+   "size": 6.0
+  },
+  {
+   "text": "PAYMENT TERMS     (WITHOUT GST BILLING)",
+   "x0": 31.19,
+   "x1": 364.36,
+   "baseline": 495.65,
+   "font": "Montserrat-Bold",
+   "size": 15.01
+  },
+  {
+   "text": "Total Amount:- Rs. 148000/-",
+   "x0": 51.24,
+   "x1": 220.89,
+   "baseline": 514.85,
+   "font": "Montserrat-Bold",
+   "size": 12.0
+  },
+  {
+   "text": "80% amount pending (before printing & after sample & final confirmation):-  118400/-",
+   "x0": 51.24,
+   "x1": 568.45,
+   "baseline": 538.86,
+   "font": "Montserrat-Bold",
+   "size": 12.0
+  },
+  {
+   "text": "Recieved Amount:- Rs. 30000/- (9 September 2026)",
+   "x0": 51.24,
+   "x1": 358.11,
+   "baseline": 562.87,
+   "font": "Montserrat-Regular",
+   "size": 12.0
+  },
+  {
+   "text": "Amount Pending (out of 80%) :- 118400/-  (-)  30000/-  =",
+   "x0": 51.24,
+   "x1": 378.01,
+   "baseline": 586.88,
+   "font": "Montserrat-Regular",
+   "size": 12.0
+  },
+  {
+   "text": "88400/-",
+   "x0": 384.22,
+   "x1": 432.83,
+   "baseline": 586.88,
+   "font": "Montserrat-Bold",
+   "size": 12.0
+  },
+  {
+   "text": "20% Amount:- Rs. 29600/- (Before Dispatching the Order)",
+   "x0": 51.24,
+   "x1": 393.84,
+   "baseline": 610.89,
+   "font": "Montserrat-Regular",
+   "size": 12.0
+  },
+  {
+   "text": "148000",
+   "x0": 490.65,
+   "x1": 536.93,
+   "baseline": 703.8,
+   "font": "Montserrat-Regular",
+   "size": 12.7
+  },
+  {
+   "text": "TOTAL:",
+   "x0": 434.48,
+   "x1": 481.62,
+   "baseline": 703.89,
+   "font": "Montserrat-Bold",
+   "size": 12.7
+  },
+  {
+   "text": "SUB TOTAL :",
+   "x0": 382.45,
+   "x1": 485.23,
+   "baseline": 733.27,
+   "font": "Montserrat-Regular",
+   "size": 16.97
+  },
+  {
+   "text": "148000",
+   "x0": 492.53,
+   "x1": 547.58,
+   "baseline": 733.72,
+   "font": "Montserrat-Regular",
+   "size": 14.95
+  },
+  {
+   "text": "TOTAL",
+   "x0": 17.89,
+   "x1": 42.67,
+   "baseline": 744.38,
+   "font": "Montserrat-Regular",
+   "size": 7.52
+  },
+  {
+   "text": "SAVING",
+   "x0": 44.64,
+   "x1": 75.17,
+   "baseline": 744.38,
+   "font": "Montserrat-Bold",
+   "size": 7.52
+  },
+  {
+   "text": "YOU DID FROM GETTING",
+   "x0": 77.14,
+   "x1": 172.19,
+   "baseline": 744.38,
+   "font": "Montserrat-Regular",
+   "size": 7.52
+  },
+  {
+   "text": "YOUR PRINTING DONE FROM",
+   "x0": 17.89,
+   "x1": 131.42,
+   "baseline": 753.16,
+   "font": "Montserrat-Regular",
+   "size": 7.52
+  },
+  {
+   "text": "PRINTEVR",
+   "x0": 133.55,
+   "x1": 173.98,
+   "baseline": 753.16,
+   "font": "Montserrat-Bold",
+   "size": 7.52
+  },
+  {
+   "text": "IS",
+   "x0": 175.95,
+   "x1": 182.85,
+   "baseline": 753.16,
+   "font": "Montserrat-Regular",
+   "size": 7.52
+  },
+  {
+   "text": "APPROX",
+   "x0": 89.4,
+   "x1": 122.24,
+   "baseline": 774.24,
+   "font": "Montserrat-Regular",
+   "size": 7.52
+  },
+  {
+   "text": "30000",
+   "x0": 28.5,
+   "x1": 87.74,
+   "baseline": 778.09,
+   "font": "Montserrat-Bold",
+   "size": 17.91
+  },
+  {
+   "text": "THANK YOU FOR YOUR BUSINESS.",
+   "x0": 14.45,
+   "x1": 151.59,
+   "baseline": 797.51,
+   "font": "Montserrat-Regular",
+   "size": 7.97
+  },
+  {
+   "text": "If you have any questions, please contact us at Printevrventure@gmail.com",
+   "x0": 14.45,
+   "x1": 272.19,
+   "baseline": 807.25,
+   "font": "Montserrat-Regular",
+   "size": 6.84
+  },
+  {
+   "text": "100% OF THE PAYMENT WILL BE TAKEN IN ADVANCE FOR PRINTING ORDERS",
+   "x0": 14.45,
+   "x1": 216.36,
+   "baseline": 817.17,
+   "font": "Montserrat-Regular",
+   "size": 5.13
+  },
+  {
+   "text": "Colours can vary up to 10-20% from Digital to Print.",
+   "x0": 14.62,
+   "x1": 144.7,
+   "baseline": 825.37,
+   "font": "Montserrat-Regular",
+   "size": 5.13
+  },
+  {
+   "text": "Late payment will attract additional 5% Charges",
+   "x0": 169.7,
+   "x1": 299.24,
+   "baseline": 825.37,
+   "font": "Montserrat-Regular",
+   "size": 5.13
+  },
+  {
+   "text": "Terms & Condition applied (Refer to T&C pdf)",
+   "x0": 14.62,
+   "x1": 135.44,
+   "baseline": 833.66,
+   "font": "Montserrat-Regular",
+   "size": 5.13
+  },
+  {
+   "text": "Note:-  18%  gst as applicable will be extra on total",
+   "x0": 169.26,
+   "x1": 309.95,
+   "baseline": 833.74,
+   "font": "Montserrat-Regular",
+   "size": 5.69
+  }
+ ],
+ "geometry": [
+  {
+   "name": "header_band_fill",
+   "kind": "rect_fill",
+   "x0": 0.0,
+   "y0": 0.0,
+   "x1": 595.5,
+   "y1": 117.1,
+   "color": "#E6FFDE",
+   "note": "supplied inside invoice_band.png"
+  },
+  {
+   "name": "invoice_band_image",
+   "kind": "image",
+   "x0": 0.0,
+   "y0": 0.0,
+   "x1": 595.5,
+   "y1": 120.03,
+   "asset": "invoice_band.png",
+   "note": "band + green blob + INVOICE pill/word + asterisks; blob overflows band to y=120"
+  },
+  {
+   "name": "invoice_pill",
+   "kind": "round_rect_stroke",
+   "x0": 213.0,
+   "y0": 28.6,
+   "x1": 379.6,
+   "y1": 77.3,
+   "stroke": 1.5,
+   "fill": "#FFFFFF",
+   "note": "inside band image"
+  },
+  {
+   "name": "logo",
+   "kind": "image",
+   "x0": 494.3,
+   "y0": 119.6,
+   "x1": 582.9,
+   "y1": 150.3,
+   "asset": "printevr_logo.png"
+  },
+  {
+   "name": "ship_to_underline",
+   "kind": "rect_fill",
+   "x0": 39.4,
+   "y0": 144.2,
+   "x1": 99.2,
+   "y1": 145.1,
+   "color": "#000000"
+  },
+  {
+   "name": "from_underline",
+   "kind": "rect_fill",
+   "x0": 353.0,
+   "y0": 142.2,
+   "x1": 475.4,
+   "y1": 143.0,
+   "color": "#000000"
+  },
+  {
+   "name": "table_header_pill",
+   "kind": "round_rect_stroke",
+   "x0": 22.1,
+   "y0": 248.4,
+   "x1": 553.3,
+   "y1": 275.9,
+   "stroke": 1.5,
+   "fill": "#FFFFFF"
+  },
+  {
+   "name": "row1_rule",
+   "kind": "rect_fill",
+   "x0": 17.9,
+   "y0": 372.15,
+   "x1": 559.4,
+   "y1": 372.85,
+   "color": "#000000"
+  },
+  {
+   "name": "row2_rule",
+   "kind": "rect_fill",
+   "x0": 19.7,
+   "y0": 449.85,
+   "x1": 561.2,
+   "y1": 450.55,
+   "color": "#000000"
+  },
+  {
+   "name": "payment_box",
+   "kind": "rect_stroke",
+   "x0": 22.1,
+   "y0": 470.9,
+   "x1": 580.9,
+   "y1": 624.3,
+   "stroke": 1.5
+  },
+  {
+   "name": "payment_bullets",
+   "kind": "dots",
+   "x_center": 40.2,
+   "diameter": 3.8,
+   "centers_y": [
+    510.7,
+    534.7,
+    558.7,
+    582.7,
+    606.8
+   ]
+  },
+  {
+   "name": "item_spec_bullets_row2",
+   "kind": "dots",
+   "x_center": 49.3,
+   "diameter": 2.0,
+   "centers_y": [
+    406.2,
+    414.2,
+    422.2,
+    430.2,
+    438.2
+   ]
+  },
+  {
+   "name": "subtotal_pill",
+   "kind": "round_rect_stroke",
+   "x0": 374.9,
+   "y0": 710.3,
+   "x1": 559.4,
+   "y1": 744.1,
+   "stroke": 1.5,
+   "fill": "#FFFFFF"
+  },
+  {
+   "name": "email_underline",
+   "kind": "rect_fill",
+   "x0": 174.5,
+   "y0": 807.6,
+   "x1": 272.2,
+   "y1": 808.1,
+   "color": "#000000",
+   "note": "underlines the email address only"
+  }
+ ],
+ "regions": {
+  "fixed_top": {
+   "y0": 0,
+   "y1": 280,
+   "note": "must match the reference visually (header, date/bill, ship-to, from, table header)"
+  },
+  "items": {
+   "y0": 276,
+   "y1": 460,
+   "note": "standardised row layout; content must match, positions follow BRD section 7.4, not the Canva row-2 offsets"
+  },
+  "payment_box": {
+   "note": "position relative to the last row rule (+20.7); internal offsets must match"
+  },
+  "fixed_bottom": {
+   "y0": 690,
+   "y1": 842.25,
+   "note": "must match the reference visually (totals, sub total pill, saving, footer)"
+  }
+ }
+}

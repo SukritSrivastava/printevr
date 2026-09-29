@@ -4,6 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/app backend/app
+COPY backend/assets backend/assets
 COPY config config
 COPY data data
 WORKDIR /srv/backend

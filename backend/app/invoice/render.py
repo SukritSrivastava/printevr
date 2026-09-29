@@ -1,0 +1,241 @@
+"""Invoice PDF in Printevr's format (BRD-cart-invoice section 7): InvoiceDocument -> bytes.
+
+compose() lays every page out as ops (paginate.py); draw() turns them into ReportLab calls
+on a canvas created with invariant=1, so the same document always gives the same bytes.
+"""
+import io
+from dataclasses import dataclass
+from decimal import Decimal
+from functools import lru_cache
+
+from reportlab.lib.colors import black, white
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas as rl_canvas
+
+from . import fmt, terms
+from . import layout as L
+from .config import InvoiceConfig
+from .models import InvoiceDocument
+from .money import Money, compute, line_subtotal
+from .paginate import Bar, Box, Dot, Image, Op, Pill, Text, layout_box, layout_row, paginate, wrap_runs
+
+
+@dataclass
+class Composed:
+    pages: list[list[Op]]
+    money: Money
+    title: str
+
+
+def document_money(doc: InvoiceDocument, cfg: InvoiceConfig) -> Money:
+    subtotals = [line_subtotal(Decimal(str(l.quantity)), l.unit_price) for l in doc.lines]
+    return compute(subtotals, doc.billing_type, cfg.gst_rate, cfg.advance_pct, [p.amount for p in doc.payments])
+
+
+def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
+    L.register_fonts()
+    m = document_money(doc, cfg)
+    rows = [layout_row(line, cfg.pad_single_digit_unit_price) for line in doc.lines]
+    entries = [terms.PaymentEntry(p.amount, p.date) for p in doc.payments]
+    box = layout_box(
+        terms.title(cfg.payment_terms, doc.billing_type),
+        terms.lines(cfg.payment_terms, m, cfg.advance_pct, entries),
+    )
+    with_gst = doc.billing_type == "with_gst"
+    plans = paginate([r.height for r in rows], box.height, with_gst)
+
+    pages: list[list[Op]] = []
+    for plan in plans:
+        ops: list[Op] = []
+        if plan.first:
+            ops += _page_one_top(doc, cfg)
+        else:
+            x, y, font, size = L.CONT_BILL
+            ops.append(Text(x, y, f"Bill No : {doc.bill_no} (continued)", font, size))
+        if plan.table_header and plan.rows:
+            ops += _table_header(plan.header_top)
+        for index, top in plan.rows:
+            ops += rows[index].at(top)
+        if plan.box_top is not None:
+            ops += box.at(plan.box_top)
+            ops += _totals_and_footer(doc, cfg, m)
+        pages.append(ops)
+
+    if len(pages) > 1:
+        x, y, font, size = L.PAGE_NUMBER
+        for n, ops in enumerate(pages, start=1):
+            ops.append(Text(x, y, f"Page {n} of {len(pages)}", font, size, "right"))
+
+    return Composed(pages=pages, money=m, title=f"INVOICE {doc.bill_no} - {fmt.caps(doc.customer.business_name)}")
+
+
+# ---------------------------------------------------------------- page parts
+
+
+def _text(spec: tuple, text: str, align: str = "left", tracking: str | None = None) -> Text:
+    x, y, font, size = spec[:4]
+    return Text(x, y, text, font, size, align, L.TRACKING.get(tracking or text, 0.0) if align == "left" else 0.0)
+
+
+def _page_one_top(doc: InvoiceDocument, cfg: InvoiceConfig) -> list[Op]:
+    bx, btop, bw, bbottom = L.BAND
+    lx, ltop, lw, lh = L.LOGO
+    ops: list[Op] = [
+        Image(str(L.BAND_IMAGE), bx, btop, bw, bbottom - btop),
+        Image(str(L.LOGO_IMAGE), lx, ltop, lw, lh),
+        _text(L.DATE_LABEL, "Date"),
+        _text(L.DATE_VALUE, L.VALUE_PREFIX + fmt.invoice_date(doc.invoice_date)),
+        _text(L.BILL_LABEL, "Bill No"),
+        _text(L.BILL_VALUE, L.VALUE_PREFIX + str(doc.bill_no)),
+    ]
+    for heading, bar in ((L.SHIP_TO_HEADING, L.SHIP_TO_RULE), (L.FROM_HEADING, L.FROM_RULE)):
+        x, y, font, size, text = heading
+        ops.append(Text(x, y, text, font, size, char_space=L.TRACKING.get(text, 0.0)))
+        ops.append(Bar(bar[0], bar[1], bar[2], bar[3]))
+    font, size = L.FROM_LINES_FONT
+    for text, y in zip(cfg.from_lines, L.FROM_LINES_Y):
+        ops.append(Text(L.FROM_LINES_X, y, text, font, size))
+    ops += _ship_to(doc)
+    return ops
+
+
+def _ship_to(doc: InvoiceDocument) -> list[Op]:
+    c = doc.customer
+    x, size = L.SHIP_TO_X, L.SHIP_TO_SIZE
+    entries: list[tuple[str, str, float]] = [(f"{fmt.caps(c.business_name)},", L.BOLD, size)]
+    if c.contact_person:
+        entries.append((f"{fmt.caps(c.contact_person)},", L.BOLD, size))
+    address = fmt.caps(c.address)
+    addr_size = size
+    while True:
+        lines = wrap_runs([(address, L.REGULAR)], addr_size, x, x, L.SHIP_TO_ADDRESS_MAX_X)
+        if len(lines) <= L.SHIP_TO_ADDRESS_LINES or addr_size <= L.SHIP_TO_MIN_SIZE:
+            break
+        addr_size = round(addr_size - 0.25, 2)
+    entries += [("".join(t for _, t, _ in line), L.REGULAR, addr_size) for line in lines]
+    entries.append((f"{c.phone},", L.BOLD, size))
+    return [Text(x, L.SHIP_TO_Y0 + i * L.SHIP_TO_STEP, t, f, s) for i, (t, f, s) in enumerate(entries)]
+
+
+def _table_header(top: float) -> list[Op]:
+    height = L.TABLE_PILL_Y[1] - L.TABLE_PILL_Y[0]
+    ops: list[Op] = [Pill(L.TABLE_PILL_X[0], L.TABLE_PILL_X[1], top, top + height)]
+    for text, x, offset, size in L.TABLE_LABELS:
+        ops.append(Text(x, top + offset, text, L.REGULAR, size, char_space=L.TRACKING.get(text, 0.0)))
+    return ops
+
+
+def _bold_runs(template: str, x: float, y: float, size: float) -> list[Op]:
+    ops: list[Op] = []
+    for text, bold in terms.runs(template):
+        font = L.BOLD if bold else L.REGULAR
+        ops.append(Text(x, y, text, font, size))
+        x += L.width(text, font, size)
+    # Spaces at run edges carry no ink; keep each run's text as drawn.
+    return [op for op in ops if op.text.strip()]
+
+
+def _totals_and_footer(doc: InvoiceDocument, cfg: InvoiceConfig, m: Money) -> list[Op]:
+    ops: list[Op] = []
+    lx, ly, lfont, lsize, ltext = L.TOTAL_LABEL
+    vx, vy, vfont, vsize = L.TOTAL_VALUE
+    lift = L.GST_LIFT if doc.billing_type == "with_gst" else 0.0
+    ops.append(Text(lx, ly - lift, ltext, lfont, lsize))
+    ops.append(Text(vx, vy - lift, fmt.amount(m.total), vfont, vsize, "right"))
+    if doc.billing_type == "with_gst":
+        label = cfg.totals["gst_label"].format(gst_pct=terms.pct(cfg.gst_rate * 100))
+        ops.append(Text(L.TOTAL_LABEL_RIGHT, ly, label, lfont, lsize, "right"))
+        ops.append(Text(vx, vy, fmt.amount(m.gst), vfont, vsize, "right"))
+
+    px0, px1, ptop, pbottom = L.SUB_PILL
+    ops.append(Pill(px0, px1, ptop, pbottom))
+    ops.append(_text(L.SUB_LABEL, L.SUB_LABEL[4]))
+    sx, sy, sfont, ssize = L.SUB_VALUE
+    payable = fmt.amount(m.payable)
+    while ssize > L.SUB_VALUE_MIN_SIZE and sx - L.width(payable, sfont, ssize) < L.SUB_VALUE_MIN_X:
+        ssize = max(L.SUB_VALUE_MIN_SIZE, round(ssize - 0.25, 2))
+    ops.append(Text(sx, sy, payable, sfont, ssize, "right"))
+
+    if doc.saving_amount is not None and doc.saving_amount > 0:
+        for template, y in zip(cfg.saving_lines, L.SAVING_LINES_Y):
+            ops += _bold_runs(template, L.SAVING_X, y, L.SAVING_SIZE)
+        ax, ay, afont, asize = L.SAVING_AMOUNT
+        saving = fmt.amount(doc.saving_amount)
+        ops.append(Text(ax, ay, saving, afont, asize))
+        gap, py, pfont, psize, ptext = L.APPROX
+        ops.append(Text(ax + L.width(saving, afont, asize) + gap, py, ptext, pfont, psize))
+
+    f = cfg.footer
+    ops.append(_text(L.THANKS, f["thanks"], tracking="thanks"))
+    ops.append(_text(L.CONTACT, f["contact_prefix"] + f["email"]))
+    cx, _, cfont, csize = L.CONTACT
+    email_x0 = cx + L.width(f["contact_prefix"], cfont, csize)
+    email_x1 = email_x0 + L.width(f["email"], cfont, csize)
+    ops.append(Bar(email_x0, email_x1, *L.EMAIL_RULE_Y))
+    ops.append(_text(L.ADVANCE_NOTE, f["advance_note"]))
+    ops.append(_text(L.COLOUR_NOTE, f["colour_note"]))
+    ops.append(_text(L.LATE_NOTE, f["late_note"], tracking="late_note"))
+    ops.append(_text(L.TERMS_NOTE, f["terms_note"], tracking="terms_note"))
+    gst_note = f["gst_note_with_gst"] if doc.billing_type == "with_gst" else f["gst_note_without_gst"]
+    ops.append(_text(L.GST_NOTE, gst_note))
+    return ops
+
+
+# ---------------------------------------------------------------- drawing
+
+
+@lru_cache(maxsize=8)
+def _image(path: str) -> ImageReader:
+    return ImageReader(path)
+
+
+def draw(composed: Composed) -> bytes:
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(L.PAGE_W, L.PAGE_H), invariant=1, pageCompression=1)
+    c.setTitle(composed.title)
+    c.setAuthor(L.AUTHOR)
+    c.setCreator(L.AUTHOR)
+    c.setProducer(L.AUTHOR)
+    H = L.PAGE_H
+    for ops in composed.pages:
+        for op in ops:
+            if isinstance(op, Image):
+                c.drawImage(_image(op.path), op.x, H - op.top - op.h, width=op.w, height=op.h, mask="auto")
+            elif isinstance(op, Text):
+                c.setFillColor(black)
+                c.setFont(op.font, op.size)
+                if op.align == "center":
+                    c.drawCentredString(op.x, H - op.y, op.text)
+                elif op.align == "right":
+                    c.drawRightString(op.x, H - op.y, op.text)
+                elif op.char_space:
+                    c.drawString(op.x, H - op.y, op.text, charSpace=op.char_space)
+                else:
+                    c.drawString(op.x, H - op.y, op.text)
+            elif isinstance(op, Bar):
+                c.setFillColor(black)
+                c.rect(op.x0, H - op.bottom, op.x1 - op.x0, op.bottom - op.top, stroke=0, fill=1)
+            elif isinstance(op, Dot):
+                c.setFillColor(black)
+                c.circle(op.cx, H - op.cy, op.d / 2, stroke=0, fill=1)
+            # Pill and box coordinates are the OUTER edge of the stroke (as measured on the
+            # reference), so the path runs half a stroke inside them.
+            elif isinstance(op, Pill):
+                i = L.PILL_STROKE / 2
+                h = op.bottom - op.top - 2 * i
+                c.setFillColor(white)
+                c.setStrokeColor(black)
+                c.setLineWidth(L.PILL_STROKE)
+                c.roundRect(op.x0 + i, H - op.bottom + i, op.x1 - op.x0 - 2 * i, h, h / 2, stroke=1, fill=1)
+            elif isinstance(op, Box):
+                i = L.BOX_STROKE / 2
+                c.setStrokeColor(black)
+                c.setLineWidth(L.BOX_STROKE)
+                c.rect(op.x0 + i, H - op.bottom + i, op.x1 - op.x0 - 2 * i, op.bottom - op.top - 2 * i, stroke=1, fill=0)
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def render(doc: InvoiceDocument, cfg: InvoiceConfig) -> bytes:
+    return draw(compose(doc, cfg))

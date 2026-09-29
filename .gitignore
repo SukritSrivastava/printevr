@@ -9,3 +9,5 @@ frontend/dist/
 *.tsbuildinfo
 .vercel/
 .env*.local
+var/
+backend/tests/output/

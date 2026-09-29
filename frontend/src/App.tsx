@@ -2,7 +2,14 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useEffect, useMemo, useState } from 'react'
 import { ApiError, calculate, fetchCatalog, fetchSession, logout } from './api/client'
 import type { BillingType, CalculateRequest, Catalog, CatalogProduct } from './api/types'
+import { useCart, CartProvider } from './cart/CartProvider'
 import { AddonList } from './components/AddonList'
+import { AddToCartButton } from './components/AddToCartButton'
+import { CartPage } from './components/CartPage'
+import { CustomItemDialog } from './components/CustomItemDialog'
+import { InvoicesPage } from './components/InvoicesPage'
+import { StaffProvider } from './components/StaffLoginDialog'
+import { ToastProvider } from './components/Toast'
 import { CustomSizeInputs, type DimValues } from './components/CustomSizeInputs'
 import { PasswordPage } from './components/PasswordPage'
 import { ProductPicker } from './components/ProductPicker'
@@ -98,7 +105,69 @@ function CatalogGate({ onSignedOut }: { onSignedOut: () => void }) {
       />
     )
   }
-  return <QuoteDesk catalog={catalogQuery.data} onSignedOut={onSignedOut} />
+  return <Workspace catalog={catalogQuery.data} onSignedOut={onSignedOut} />
+}
+
+type View = 'calculator' | 'cart' | 'invoices'
+
+/** Calculator, Cart and Invoices. The calculator stays mounted so its selection survives. */
+function Workspace({ catalog, onSignedOut }: { catalog: Catalog; onSignedOut: () => void }) {
+  const [view, setView] = useState<View>('calculator')
+  return (
+    <ToastProvider>
+      <StaffProvider>
+        <CartProvider>
+          <ViewTabs view={view} onView={setView} />
+          <div hidden={view !== 'calculator'}>
+            <QuoteDesk catalog={catalog} onSignedOut={onSignedOut} onViewCart={() => setView('cart')} />
+          </div>
+          {view === 'cart' && <CartPage onCalculator={() => setView('calculator')} />}
+          {view === 'invoices' && <InvoicesPage />}
+          <CustomItemHost />
+        </CartProvider>
+      </StaffProvider>
+    </ToastProvider>
+  )
+}
+
+function CustomItemHost() {
+  const { customItem } = useCart()
+  return customItem ? <CustomItemDialog /> : null
+}
+
+function ViewTabs({ view, onView }: { view: View; onView: (v: View) => void }) {
+  const { lines } = useCart()
+  const tab = (v: View, label: React.ReactNode, extra?: string) => (
+    <button
+      type="button"
+      onClick={() => onView(v)}
+      aria-current={view === v ? 'page' : undefined}
+      className={`flex items-center gap-2 border-b-[3px] px-3 py-2.5 font-semibold ${view === v ? 'border-cyan text-ink' : 'border-transparent text-ink-soft hover:text-ink'} ${extra ?? ''}`}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <nav className="border-b border-rule bg-stock" aria-label="Sections">
+      <div className="mx-auto flex max-w-6xl gap-1 px-2 sm:px-4">
+        {tab('calculator', 'Calculator')}
+        {tab(
+          'cart',
+          <>
+            Cart
+            <span
+              className={`min-w-6 rounded-full px-1.5 text-center text-sm ${lines.length ? 'bg-cyan text-stock' : 'bg-sheet text-ink-soft'}`}
+              aria-label={`${lines.length} line${lines.length === 1 ? '' : 's'}`}
+              data-testid="cart-count"
+            >
+              {lines.length}
+            </span>
+          </>,
+        )}
+        {tab('invoices', 'Invoices')}
+      </div>
+    </nav>
+  )
 }
 
 function ServerError({ title, message, onRetry }: { title?: string; message: string; onRetry: () => void }) {
@@ -141,7 +210,15 @@ function firstProduct(catalog: Catalog): CatalogProduct {
   return all.find((p) => p.id === 'rigid_boxes') ?? all[0]
 }
 
-export function QuoteDesk({ catalog, onSignedOut }: { catalog: Catalog; onSignedOut?: () => void }) {
+export function QuoteDesk({
+  catalog,
+  onSignedOut,
+  onViewCart,
+}: {
+  catalog: Catalog
+  onSignedOut?: () => void
+  onViewCart?: () => void
+}) {
   const products = useMemo(() => new Map(catalog.categories.flatMap((c) => c.products).map((p) => [p.id, p])), [catalog])
   const [productId, setProductId] = useState(() => firstProduct(catalog).id)
   const product = products.get(productId)!
@@ -185,6 +262,9 @@ export function QuoteDesk({ catalog, onSignedOut }: { catalog: Catalog; onSigned
       quantity,
       addons: addons.filter((id) => availableAddons.some((a) => a.id === id)),
       billing_type: billing,
+      ...(isOutdoor
+        ? { outdoor: { width: Number(outdoor.width), height: Number(outdoor.height), pieces: Number(outdoor.pieces) } }
+        : {}),
     }
     if (custom) {
       const fields = DIM_FIELDS[product.custom_dims as 'box' | 'bag' | 'flat']
@@ -343,6 +423,18 @@ export function QuoteDesk({ catalog, onSignedOut }: { catalog: Catalog; onSigned
           loading={loading}
           onUseQuantity={(n) => setQty(String(n))}
           onRetry={() => quoteQuery.refetch()}
+          action={
+            onViewCart && (
+              <AddToCartButton
+                response={receipt.kind === 'response' ? receipt.response : undefined}
+                request={debouncedKey ? (JSON.parse(debouncedKey) as CalculateRequest) : null}
+                disabled={loading || receipt.kind !== 'response'}
+                product={product}
+                item={item}
+                onViewCart={onViewCart}
+              />
+            )
+          }
         />
       </div>
     </main>

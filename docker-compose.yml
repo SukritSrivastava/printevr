@@ -7,10 +7,15 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
+      STAFF_PASSCODE: ${STAFF_PASSCODE:-}
+      SECRET_KEY: ${SECRET_KEY:-}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////srv/var/invoices.db}
     volumes:
       # Edit the sheet or config on the host, then POST /api/admin/reload.
       - ./data:/srv/data:ro
       - ./config:/srv/config:ro
+      # Invoices live here; keep it between container restarts.
+      - ./var:/srv/var
     ports:
       - "8000:8000"
     healthcheck:

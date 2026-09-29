@@ -19,8 +19,20 @@ class LoginRequest(BaseModel):
     password: str = Field(max_length=200)
 
 
+class OutdoorSize(BaseModel):
+    """What the UI multiplied into square feet; only used for the invoice line's Size text."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    width: Decimal = Field(gt=0, le=10_000)
+    height: Decimal = Field(gt=0, le=10_000)
+    pieces: int = Field(ge=1, le=100_000)
+
+
 class CalculateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    outdoor: OutdoorSize | None = None
 
     product_id: str | None = None
     item_id: str | None = None
