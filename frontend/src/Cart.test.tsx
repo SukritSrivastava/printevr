@@ -4,7 +4,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import type { CartLine, InvoiceCreate, InvoiceLineDraft } from './api/invoiceTypes'
+import type { CartLine, GstOption, InvoiceCreate, InvoiceLineDraft } from './api/invoiceTypes'
 import type { CalculateRequest, QuoteResponse } from './api/types'
 import { STORAGE_KEY, todayIST } from './cart/CartProvider'
 import { fromPaise, invoiceMoney, lineSubtotal, suggestedSaving } from './lib/invoiceMoney'
@@ -64,17 +64,35 @@ const pdfResponse = (billNo: number, status: string, name: string) =>
     },
   })
 
-const settingsResponse = (storage: boolean) =>
-  new Response(JSON.stringify({ enabled: true, storage, gst_rate: '0.18', advance_pct: '80' }))
+// As GET /api/invoice-settings sends them from config/invoice.yaml.
+const GST_OPTIONS: GstOption[] = [
+  { key: 'gst_5', label: '5% GST', components: [{ name: 'GST', rate: '5' }] },
+  { key: 'gst_12', label: '12% GST', components: [{ name: 'GST', rate: '12' }] },
+  { key: 'gst_18', label: '18% GST', components: [{ name: 'GST', rate: '18' }] },
+  {
+    key: 'cgst_sgst_9_9',
+    label: '9% CGST + 9% SGST/UTGST',
+    components: [
+      { name: 'CGST', rate: '9' },
+      { name: 'SGST/UTGST', rate: '9' },
+    ],
+  },
+]
+const gstOf = (key: string) => GST_OPTIONS.find((o) => o.key === key)!.components
 
-function mockApi(opts: { quote?: (b: CalculateRequest) => QuoteResponse; invoice?: InvoiceAnswer; storage?: boolean } = {}): Api {
+const settingsResponse = (storage: boolean, staffPasscode = true) =>
+  new Response(JSON.stringify({ enabled: true, storage, staff_passcode: staffPasscode, gst_options: GST_OPTIONS, advance_pct: '80' }))
+
+function mockApi(
+  opts: { quote?: (b: CalculateRequest) => QuoteResponse; invoice?: InvoiceAnswer; storage?: boolean; staffPasscode?: boolean } = {},
+): Api {
   const api: Api = { calls: [], invoices: [], logins: 0 }
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/api/session')) return new Response(JSON.stringify({ authenticated: true, password_required: false }))
       if (url.endsWith('/api/catalog')) return new Response(JSON.stringify(catalog))
-      if (url.endsWith('/api/invoice-settings')) return settingsResponse(opts.storage ?? true)
+      if (url.endsWith('/api/invoice-settings')) return settingsResponse(opts.storage ?? true, opts.staffPasscode ?? true)
       if (url.endsWith('/api/calculate')) {
         const body = JSON.parse(String(init?.body)) as CalculateRequest
         api.calls.push(body)
@@ -85,7 +103,7 @@ function mockApi(opts: { quote?: (b: CalculateRequest) => QuoteResponse; invoice
         return new Response(JSON.stringify({ token: '9999999999.sig', expires_at: '2026-10-01T00:00:00Z' }))
       }
       if (url.endsWith('/api/invoices/next-bill-no')) {
-        return new Response(JSON.stringify({ next_bill_no: 19 + api.invoices.length, gst_rate: '0.18', advance_pct: '80' }))
+        return new Response(JSON.stringify({ next_bill_no: 19 + api.invoices.length, gst_options: GST_OPTIONS, advance_pct: '80' }))
       }
       if (url.endsWith('/api/invoices') && init?.method === 'POST') {
         const body = JSON.parse(String(init.body)) as InvoiceCreate
@@ -152,13 +170,32 @@ describe('invoice money (display)', () => {
       { quantity: 1000, unit_price: '140', middle: { kind: 'note' } },
       { quantity: 1000, unit_price: '8', middle: { kind: 'reference_price', amount: '15' } },
     ]
-    const m = invoiceMoney(lines, false)
+    const m = invoiceMoney(lines, [])
     expect([m.total, m.payable, m.advance, m.balance].map(fromPaise)).toEqual(['148000.00', '148000.00', '118400.00', '29600.00'])
-    const g = invoiceMoney(lines, true)
+    const g = invoiceMoney(lines, gstOf('gst_18'))
     expect([g.gst, g.payable, g.advance, g.balance].map(fromPaise)).toEqual(['26640.00', '174640.00', '139712.00', '34928.00'])
     expect(fromPaise(lineSubtotal(1, '88.50'))).toBe('88.50')
-    expect(fromPaise(invoiceMoney([{ quantity: 1, unit_price: '88.50' }], false).advance)).toBe('70.80')
+    expect(fromPaise(invoiceMoney([{ quantity: 1, unit_price: '88.50' }], []).advance)).toBe('70.80')
     expect(fromPaise(suggestedSaving(lines))).toBe('7000.00')
+  })
+
+  // The same cases as backend/tests/test_gst.py, so the preview matches the PDF to the paisa.
+  const taxed = (price: string, key: string) => {
+    const m = invoiceMoney([{ quantity: 1, unit_price: price }], gstOf(key))
+    return [...m.taxes.map((t) => `${t.name} @ ${t.rate}% ${fromPaise(t.amount)}`), fromPaise(m.payable)]
+  }
+
+  it('charges each GST component on the total', () => {
+    expect(taxed('10000', 'gst_5')).toEqual(['GST @ 5% 500.00', '10500.00'])
+    expect(taxed('10000', 'gst_12')).toEqual(['GST @ 12% 1200.00', '11200.00'])
+    expect(taxed('10000', 'gst_18')).toEqual(['GST @ 18% 1800.00', '11800.00'])
+    expect(taxed('10000', 'cgst_sgst_9_9')).toEqual(['CGST @ 9% 900.00', 'SGST/UTGST @ 9% 900.00', '11800.00'])
+  })
+
+  it('rounds each component half up on its own', () => {
+    expect(taxed('100.05', 'gst_18')).toEqual(['GST @ 18% 18.01', '118.06'])
+    expect(taxed('100.05', 'cgst_sgst_9_9')).toEqual(['CGST @ 9% 9.00', 'SGST/UTGST @ 9% 9.00', '118.05'])
+    expect(invoiceMoney([], gstOf('cgst_sgst_9_9')).taxes.map((t) => t.amount)).toEqual([0n, 0n])
   })
 })
 
@@ -225,6 +262,54 @@ describe('cart', () => {
     expect(paid).toBeEnabled()
   })
 
+  it('With GST billing needs a GST rate; the summary and the request follow it', async () => {
+    savedCart([catalogueLine()], SHIP_TO)
+    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
+    const api = mockApi()
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    const unpaid = screen.getByRole('button', { name: 'Print (Unpaid as of now)' })
+    const paid = screen.getByRole('button', { name: 'Print (Paid)' })
+    expect(unpaid).toBeEnabled()
+    expect(screen.queryByLabelText('GST Rate')).not.toBeInTheDocument() // Without GST billing: no dropdown
+
+    await user.click(screen.getByLabelText('With GST billing'))
+    const select = await screen.findByLabelText('GST Rate')
+    expect(select).toHaveValue('')
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Select GST rate',
+      '5% GST',
+      '12% GST',
+      '18% GST',
+      '9% CGST + 9% SGST/UTGST',
+    ])
+    expect(unpaid).toBeDisabled()
+    expect(paid).toBeDisabled()
+    expect(screen.getAllByText(/Select a GST rate to generate the invoice/).length).toBeGreaterThan(0)
+
+    const summary = screen.getByLabelText('Invoice summary')
+    await user.selectOptions(select, 'gst_12')
+    expect(within(summary).getByText('GST @ 12%').nextSibling).toHaveTextContent('₹3,150.00')
+    expect(screen.getByTestId('payable')).toHaveTextContent('₹29,400.00')
+
+    await user.selectOptions(select, 'cgst_sgst_9_9')
+    expect(within(summary).queryByText('GST @ 12%')).not.toBeInTheDocument()
+    expect(within(summary).getByText('CGST @ 9%').nextSibling).toHaveTextContent('₹2,362.50')
+    expect(within(summary).getByText('SGST/UTGST @ 9%').nextSibling).toHaveTextContent('₹2,362.50')
+    expect(screen.getByTestId('payable')).toHaveTextContent('₹30,975.00')
+    expect(unpaid).toBeEnabled()
+    expect(paid).toBeEnabled()
+
+    await user.click(unpaid)
+    await waitFor(() => expect(api.invoices).toHaveLength(1))
+    expect(api.invoices[0]).toMatchObject({ billing_type: 'with_gst', gst_option: 'cgst_sgst_9_9' })
+
+    await user.click(screen.getByLabelText('Without GST billing'))
+    expect(screen.queryByLabelText('GST Rate')).not.toBeInTheDocument()
+    expect(screen.getByTestId('payable')).toHaveTextContent('₹26,250.00')
+  })
+
   it('U4: Print (Unpaid) asks for the passcode, posts no payments and downloads the named file', async () => {
     savedCart([catalogueLine()], SHIP_TO)
     const api = mockApi()
@@ -238,7 +323,7 @@ describe('cart', () => {
     await waitFor(() => expect(downloads).toEqual(['Invoice_19_Sogat-Jutti-Store_Unpaid.pdf']))
     expect(api.logins).toBe(1)
     expect(api.invoices).toHaveLength(1)
-    expect(api.invoices[0]).toMatchObject({ print_mode: 'unpaid', payments: [], bill_no: null, billing_type: 'without_gst' })
+    expect(api.invoices[0]).toMatchObject({ print_mode: 'unpaid', payments: [], bill_no: null, billing_type: 'without_gst', gst_option: null })
     expect(api.invoices[0].customer.business_name).toBe('Sogat Jutti Store')
     expect(await screen.findByText('Invoice 19 downloaded')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Clear cart' })).toBeInTheDocument()
@@ -306,37 +391,25 @@ describe('cart', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).lines[0]).toMatchObject({ source: 'custom', catalogue_unit_price: null, unit_price: '120', quantity: 50 })
   })
 
-  it('Invoices page: lists invoices and records a payment for the remaining amount', async () => {
-    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
-    const payments: unknown[] = []
-    const row = { bill_no: 19, invoice_date: '2026-09-29', business_name: 'Sogat Jutti Store', billing_type: 'without_gst', total: '148000.00', payable: '148000.00', received: '30000.00', status: 'part_paid', version: 2 }
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string, init?: RequestInit) => {
-        if (url.endsWith('/api/session')) return new Response(JSON.stringify({ authenticated: true, password_required: false }))
-        if (url.endsWith('/api/catalog')) return new Response(JSON.stringify(catalog))
-        if (url.endsWith('/api/invoice-settings')) return settingsResponse(true)
-        if (url.endsWith('/api/calculate')) return new Response(JSON.stringify(quoteFor(100)))
-        if (url.includes('/api/invoices?')) return new Response(JSON.stringify({ invoices: [row], total: 1, limit: 25, offset: 0 }))
-        if (url.endsWith('/api/invoices/19/payments')) {
-          payments.push(JSON.parse(String(init?.body)))
-          return pdfResponse(19, 'paid', 'Invoice_19_Sogat-Jutti-Store_Paid.pdf')
-        }
-        throw new Error(`unexpected ${url}`)
-      }),
-    )
+  it('only Calculator and Cart in the top bar (the Invoices page is off for now)', async () => {
+    mockApi({ storage: true })
     const user = setup()
     renderApp()
-    await user.click(await screen.findByRole('button', { name: 'Invoices' }))
-    expect(await screen.findByText('Sogat Jutti Store')).toBeInTheDocument()
-    expect(screen.getByText('Part-paid')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Record payment for invoice 19' }))
-    const dialog = await screen.findByRole('dialog', { name: /Record payment/ })
-    expect(within(dialog).getByLabelText('Amount received (₹)')).toHaveValue('118000')
-    expect(within(dialog).queryByRole('button', { name: /Add another payment/ })).not.toBeInTheDocument()
-    await user.click(within(dialog).getByRole('button', { name: 'Record and download' }))
-    await waitFor(() => expect(downloads).toEqual(['Invoice_19_Sogat-Jutti-Store_Paid.pdf']))
-    expect(payments).toEqual([{ amount: '118000', date: todayIST(), mode: 'upi', note: null }])
+    await openCart(user)
+    const nav = screen.getByRole('navigation', { name: 'Sections' })
+    expect(within(nav).getAllByRole('button').map((b) => b.textContent?.replace(/\d+$/, ''))).toEqual(['Calculator', 'Cart'])
+  })
+
+  it('one password: with no staff passcode on the server, printing never asks for one', async () => {
+    savedCart([catalogueLine()], SHIP_TO)
+    const api = mockApi({ staffPasscode: false })
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    await user.click(screen.getByRole('button', { name: 'Print (Unpaid as of now)' }))
+    await waitFor(() => expect(downloads).toEqual(['Invoice_19_Sogat-Jutti-Store_Unpaid.pdf']))
+    expect(screen.queryByRole('dialog', { name: 'Staff passcode' })).not.toBeInTheDocument()
+    expect(api.logins).toBe(0)
   })
 
   it('without storage: Bill No is required, counts up after printing, and there is no Invoices tab', async () => {

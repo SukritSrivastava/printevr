@@ -30,7 +30,8 @@ Internal quoting tool. The spec is `docs/BRD-v2.1.pdf` (BRD v2.1); read the rele
   - Drafts for per-order add-on lines carry `addon_id`, used to check them against the parent's fresh quote.
   - Cart line quantities may have 2 decimals (square feet); other units are whole.
   - `invoices` has an extra `business_name` column for search.
-  - `GET /api/invoices/next-bill-no` also returns `gst_rate` and `advance_pct` for the cart's summary box.
+  - `GET /api/invoices/next-bill-no` also returns `gst_options` and `advance_pct` for the cart's summary box.
+  - **Selectable GST** (replaces D4's single 18%): With GST billing requires `gst_option`, a key from `gst_options` in `config/invoice.yaml` (400 `INVALID_GST_OPTION` if missing or unknown). Each component is rounded to paise on its own and printed as its own row (`CGST @ 9%:`); the chosen option and its rows are stored in `invoices.gst` (JSON, added on startup if missing). Saved With GST invoices without it reprint at 18%.
   - The staff token check (401) and `INVOICING_DISABLED` (503) run in middleware, before body validation.
   - Invoicing is also disabled (503) when `SECRET_KEY` is missing.
   - **No-storage mode** (not in the BRD; the production site on Vercel runs this way, by the owner's choice): without `DATABASE_URL`, `POST /api/invoices` renders and returns the PDF without saving it, and `bill_no` is required. Routes that read stored invoices answer `503 STORAGE_DISABLED`. `GET /api/invoice-settings` (no staff token) tells the UI, which then requires the Bill No and hides the Invoices tab.

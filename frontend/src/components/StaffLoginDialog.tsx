@@ -1,5 +1,6 @@
 // Staff passcode for invoicing (BRD-cart-invoice FR-P8). Asked the first time someone prints
 // or opens Invoices; the token lives in sessionStorage. Any 401 asks again and retries once.
+// Servers without STAFF_PASSCODE (`required` false) never ask: the site password is enough.
 import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { setStaffToken, staffLogin, staffToken } from '../api/invoices'
@@ -15,7 +16,7 @@ type WithStaff = <T>(fn: () => Promise<T>) => Promise<T>
 
 const StaffContext = createContext<WithStaff | null>(null)
 
-export function StaffProvider({ children }: { children: React.ReactNode }) {
+export function StaffProvider({ children, required = true }: { children: React.ReactNode; required?: boolean }) {
   const [asking, setAsking] = useState(false)
   const waiting = useRef<{ resolve: () => void; reject: (e: Error) => void }[]>([])
 
@@ -37,7 +38,7 @@ export function StaffProvider({ children }: { children: React.ReactNode }) {
 
   const withStaff = useCallback<WithStaff>(
     async (fn) => {
-      if (!staffToken()) await ask()
+      if (required && !staffToken()) await ask()
       try {
         return await fn()
       } catch (err) {
@@ -49,7 +50,7 @@ export function StaffProvider({ children }: { children: React.ReactNode }) {
         throw err
       }
     },
-    [ask],
+    [ask, required],
   )
 
   return (

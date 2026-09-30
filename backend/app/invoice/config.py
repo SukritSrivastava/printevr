@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from .gst import GstOption, parse_options
+
 
 class InvoiceConfigError(Exception):
     pass
@@ -14,7 +16,7 @@ class InvoiceConfigError(Exception):
 @dataclass(frozen=True)
 class InvoiceConfig:
     bill_no_start: int
-    gst_rate: Decimal
+    gst_options: tuple[GstOption, ...]
     advance_pct: Decimal
     pad_single_digit_unit_price: bool
     filename: str
@@ -65,7 +67,7 @@ def parse(raw: dict) -> InvoiceConfig:
             raise InvoiceConfigError(f"invoice config: missing {', '.join(missing)}")
         return InvoiceConfig(
             bill_no_start=int(raw["bill_no_start"]),
-            gst_rate=Decimal(str(raw["gst_rate"])),
+            gst_options=parse_options(raw["gst_options"]),
             advance_pct=Decimal(str(raw["advance_pct"])),
             pad_single_digit_unit_price=bool(raw.get("pad_single_digit_unit_price", True)),
             filename=str(raw["filename"]),
@@ -73,12 +75,14 @@ def parse(raw: dict) -> InvoiceConfig:
             unit_plurals={str(k): str(v) for k, v in (raw.get("unit_plurals") or {}).items()},
             from_lines=[str(line) for line in raw["from_lines"]],
             payment_terms=terms,
-            totals=dict(raw.get("totals") or {"gst_label": "GST ({gst_pct}%):"}),
+            totals=dict(raw.get("totals") or {"gst_label": "{name} @ {rate}%:"}),
             saving_lines=[str(line) for line in raw["saving_lines"]],
             footer=footer,
         )
     except KeyError as exc:
         raise InvoiceConfigError(f"invoice config: missing {exc.args[0]!r}") from None
+    except ValueError as exc:
+        raise InvoiceConfigError(f"invoice config: {exc}") from None
 
 
 @lru_cache(maxsize=4)

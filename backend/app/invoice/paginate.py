@@ -356,7 +356,7 @@ class PagePlan:
     box_top: float | None = None
 
 
-def paginate(row_heights: list[float], box_height: float, with_gst: bool) -> list[PagePlan]:
+def paginate(row_heights: list[float], box_height: float, tax_rows: int = 0) -> list[PagePlan]:
     """Place rows in order, never splitting one; then the payment box (7.7)."""
     pages = [PagePlan(first=True, table_header=True, header_top=L.TABLE_PILL_Y[0])]
     top = L.FIRST_ROW_TOP
@@ -367,7 +367,7 @@ def paginate(row_heights: list[float], box_height: float, with_gst: bool) -> lis
         pages[-1].rows.append((index, top))
         top += height
     box_top = top + L.BOX_GAP
-    limit = L.BOX_BOTTOM_LIMIT_GST if with_gst else L.BOX_BOTTOM_LIMIT
+    limit = L.BOX_BOTTOM_LIMIT - L.GST_LIFT * tax_rows  # each GST row makes the totals block a line taller
     if box_top + box_height > limit:
         pages.append(PagePlan(first=False, table_header=False))
         box_top = L.CONT_BOX_TOP

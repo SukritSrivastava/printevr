@@ -4,9 +4,9 @@ import { createInvoice, fetchNextBillNo, staffToken } from '../api/invoices'
 import type { CartLine, ChangedLine, InvoiceCreate, InvoiceSettings, PaymentInput } from '../api/invoiceTypes'
 import { useCart } from '../cart/CartProvider'
 import { saveBlob } from '../lib/download'
-import { DEFAULT_MONEY_SETTINGS, invoiceMoney, toPaise, type MoneySettings } from '../lib/invoiceMoney'
+import { DEFAULT_MONEY_SETTINGS, chosenGst, invoiceMoney, toPaise, type MoneySettings } from '../lib/invoiceMoney'
 import { CartLineCard } from './CartLineCard'
-import { CheckoutForm, checkoutErrors } from './CheckoutForm'
+import { CheckoutForm, GST_HINT, checkoutErrors } from './CheckoutForm'
 import { PaymentDialog } from './PaymentDialog'
 import { StaffCancelled, useStaff } from './StaffLoginDialog'
 import { useToast } from './Toast'
@@ -66,8 +66,8 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
   // Without storage the server can't count bill numbers: the Bill No is typed (and remembered here).
   const storage = invoiceSettings?.storage ?? true
   useEffect(() => {
-    if (invoiceSettings?.gst_rate && invoiceSettings.advance_pct) {
-      setSettings({ gstRate: invoiceSettings.gst_rate, advancePct: invoiceSettings.advance_pct })
+    if (invoiceSettings?.gst_options && invoiceSettings.advance_pct) {
+      setSettings({ gstOptions: invoiceSettings.gst_options, advancePct: invoiceSettings.advance_pct })
     }
   }, [invoiceSettings])
   const [busy, setBusy] = useState(false)
@@ -88,7 +88,7 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
 
   const refreshBillNo = useCallback(async () => {
     const next = await fetchNextBillNo()
-    setSettings({ gstRate: next.gst_rate, advancePct: next.advance_pct })
+    setSettings({ gstOptions: next.gst_options, advancePct: next.advance_pct })
     return next.next_bill_no
   }, [])
 
@@ -98,18 +98,20 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
     if (opened.current) return
     opened.current = true
     freshPrices(lines).then(applyChanges)
-    if (storage && staffToken()) {
+    if (storage && (staffToken() || invoiceSettings?.staff_passcode === false)) {
       refreshBillNo()
         .then((n) => {
           if (!checkout.bill_no) dispatch({ type: 'checkout', patch: { bill_no: String(n) } })
         })
         .catch(() => {})
     }
-  }, [lines, checkout.bill_no, applyChanges, refreshBillNo, dispatch, storage])
+  }, [lines, checkout.bill_no, applyChanges, refreshBillNo, dispatch, storage, invoiceSettings?.staff_passcode])
 
-  const m = invoiceMoney(lines, checkout.billing_type === 'with_gst', settings)
+  const gst = chosenGst(checkout.billing_type, checkout.gst_option, settings.gstOptions)
+  const needsGst = checkout.billing_type === 'with_gst' && !gst
+  const m = invoiceMoney(lines, gst?.components ?? [], settings)
   const formOk = Object.keys(checkoutErrors(checkout, !storage)).length === 0
-  const ready = lines.length > 0 && lines.every(lineReady) && formOk
+  const ready = lines.length > 0 && lines.every(lineReady) && formOk && !needsGst
 
   const print = async (mode: 'unpaid' | 'paid', payments: PaymentInput[] = []) => {
     if (busyRef.current) return
@@ -120,6 +122,7 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
       bill_no: checkout.bill_no ? Number(checkout.bill_no) : null,
       invoice_date: checkout.invoice_date,
       billing_type: checkout.billing_type,
+      gst_option: gst ? gst.key : null,
       customer: {
         business_name: checkout.business_name.trim(),
         contact_person: checkout.contact_person.trim(),
@@ -253,7 +256,9 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
         <p className="text-center text-xs text-ink-soft">
           {ready
             ? 'Downloads the invoice PDF.'
-            : `Downloads the invoice PDF. Fill in Ship To${storage ? '' : ' and Bill No'} and give every line a price first.`}
+            : needsGst && lines.every(lineReady) && formOk
+              ? `${GST_HINT}.`
+              : `Downloads the invoice PDF. Fill in Ship To${storage ? '' : ' and Bill No'}${needsGst ? ', pick a GST rate' : ''} and give every line a price first.`}
         </p>
       </div>
 

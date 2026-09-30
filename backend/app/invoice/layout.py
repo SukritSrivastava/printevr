@@ -153,7 +153,7 @@ BOX_BOTTOM_GAP = 13.4  # box bottom = last line baseline + this
 TOTAL_LABEL = (434.48, 703.89, BOLD, 12.70, "TOTAL:")
 TOTAL_LABEL_RIGHT = 481.62  # right edge of "TOTAL:"; the GST label aligns its colon here
 TOTAL_VALUE = (536.93, 703.80, REGULAR, 12.70)  # right edge
-GST_LIFT = 16.0  # With GST billing, TOTAL moves up this much and GST takes its place
+GST_LIFT = 16.0  # With GST billing, TOTAL moves up this much per tax row and the rows take its place
 SUB_PILL = (374.9, 559.4, 710.3, 744.1)  # x0, x1, top, bottom
 SUB_LABEL = (382.45, 733.27, REGULAR, 16.97, "SUB TOTAL :")
 SUB_VALUE = (547.58, 733.72, REGULAR, 14.95)  # right edge
@@ -177,8 +177,7 @@ GST_NOTE = (169.26, 833.74, REGULAR, 5.69)
 
 # ---- 7.7 pagination
 ROW_RULE_LIMIT = 800.0  # a row whose rule would fall below this moves to a new page
-BOX_BOTTOM_LIMIT = 684.0
-BOX_BOTTOM_LIMIT_GST = 668.0
+BOX_BOTTOM_LIMIT = 684.0  # less GST_LIFT per GST row (668 with one)
 CONT_BOX_TOP = 40.0
 CONT_TABLE_PILL_Y = (40.0, 67.5)
 CONT_BILL = (28.55, 28.0, REGULAR, 9.0)

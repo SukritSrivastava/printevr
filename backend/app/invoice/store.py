@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import JSON, Date, DateTime, Integer, Numeric, String, create_engine, func, or_, select
+from sqlalchemy import JSON, Date, DateTime, Integer, Numeric, String, create_engine, func, inspect, or_, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -31,6 +31,9 @@ class InvoiceRow(Base):
     saving_amount: Mapped[Decimal | None] = mapped_column(AMOUNT, nullable=True)
     total: Mapped[Decimal] = mapped_column(AMOUNT, nullable=False)
     gst_amount: Mapped[Decimal] = mapped_column(AMOUNT, nullable=False)
+    # With GST billing: {"option": "cgst_sgst_9_9", "taxes": [{"name", "rate", "amount"}, ...]}.
+    # Null for Without GST billing and for invoices saved before GST was selectable.
+    gst: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     payable: Mapped[Decimal] = mapped_column(AMOUNT, nullable=False)
     received: Mapped[Decimal] = mapped_column(AMOUNT, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -80,7 +83,15 @@ class Store:
         self.engine: Engine = create_engine(url, **kwargs)
         self.is_sqlite = url.startswith("sqlite")
         Base.metadata.create_all(self.engine)
+        self._add_missing_columns()
         self.session = sessionmaker(self.engine, expire_on_commit=False)
+
+    def _add_missing_columns(self) -> None:
+        """create_all() doesn't alter existing tables: add columns introduced since (all nullable)."""
+        have = {c["name"] for c in inspect(self.engine).get_columns(InvoiceRow.__tablename__)}
+        if "gst" not in have:
+            with self.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE invoices ADD COLUMN gst JSON"))
 
     def next_bill_no(self, session: Session, start: int) -> int:
         highest = session.scalar(select(func.max(InvoiceRow.bill_no)))

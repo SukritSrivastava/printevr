@@ -12,12 +12,12 @@ from sqlalchemy.exc import IntegrityError
 
 from ..catalogue import Catalogue
 from ..quote import QuoteError
-from . import fmt
+from . import fmt, gst
 from .config import InvoiceConfig
 from .from_quote import quote_with_drafts
-from .models import CartLine, InvoiceCreate, InvoiceDocument, Payment, PaymentCreate
-from .money import Overpaid, compute, line_subtotal
-from .render import render
+from .models import CartLine, InvoiceCreate, InvoiceDocument, Payment, PaymentCreate, TaxLine
+from .money import Money, Overpaid, compute, line_subtotal
+from .render import doc_components, render
 from .store import InvoiceRow, Store, utcnow
 
 log = logging.getLogger("printevr.invoice")
@@ -130,10 +130,30 @@ def _plain_qty(q: Decimal) -> int | float:
 # ---------------------------------------------------------------- helpers
 
 
-def _money(doc_lines: list[CartLine], billing_type: str, cfg: InvoiceConfig, payments: list[Payment]):
+def gst_option(cfg: InvoiceConfig, body: InvoiceCreate) -> gst.GstOption | None:
+    """The chosen GST option for With GST billing (400 if missing or unknown); None without GST."""
+    if body.billing_type != "with_gst":
+        return None
+    try:
+        return gst.find(cfg.gst_options, body.gst_option)
+    except gst.InvalidGstOption as exc:
+        raise InvoiceError(
+            "INVALID_GST_OPTION", str(exc), 400, {"field": "gst_option", "allowed": [o.key for o in cfg.gst_options]}
+        ) from None
+
+
+def _gst_record(option: gst.GstOption | None, m: Money) -> dict | None:
+    """What is stored with the invoice: the option chosen and each tax row as issued."""
+    if option is None:
+        return None
+    taxes = [TaxLine(name=t.name, rate=t.rate, amount=t.amount).model_dump(mode="json") for t in m.taxes]
+    return {"option": option.key, "taxes": taxes}
+
+
+def _money(doc_lines: list[CartLine], components, cfg: InvoiceConfig, payments: list[Payment]) -> Money:
     subtotals = [line_subtotal(l.quantity, l.unit_price) for l in doc_lines]
     try:
-        return compute(subtotals, billing_type, cfg.gst_rate, cfg.advance_pct, [p.amount for p in payments])
+        return compute(subtotals, components, cfg.advance_pct, [p.amount for p in payments])
     except Overpaid as exc:
         raise InvoiceError(
             "OVERPAID",
@@ -144,11 +164,14 @@ def _money(doc_lines: list[CartLine], billing_type: str, cfg: InvoiceConfig, pay
 
 
 def document(row: InvoiceRow) -> InvoiceDocument:
+    record = row.gst or {}
     return InvoiceDocument.model_validate(
         {
             "bill_no": row.bill_no,
             "invoice_date": row.invoice_date,
             "billing_type": row.billing_type,
+            "gst_option": record.get("option"),
+            "taxes": record.get("taxes") or [],
             "customer": row.customer,
             "lines": row.lines,
             "payments": row.payments,
@@ -201,6 +224,7 @@ def row_detail(row: InvoiceRow) -> dict:
         "payments": row.payments,
         "saving_amount": format(row.saving_amount, "f") if row.saving_amount is not None else None,
         "gst_amount": format(row.gst_amount, "f"),
+        "gst": row.gst,
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
     }
@@ -229,13 +253,17 @@ def create_unsaved(cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> R
     _check_print_mode(body)
     if body.bill_no is None:
         raise _validation("Enter a Bill No", field="bill_no")
+    option = gst_option(cfg, body)
     lines = reprice(cat, cfg, body.lines)
     payments = [Payment(**p.model_dump(exclude={"recorded_at"})) for p in body.payments]
-    m = _money(lines, body.billing_type, cfg, payments)
+    m = _money(lines, option.components if option else (), cfg, payments)
+    record = _gst_record(option, m) or {}
     doc = InvoiceDocument(
         bill_no=body.bill_no,
         invoice_date=body.invoice_date,
         billing_type=body.billing_type,
+        gst_option=record.get("option"),
+        taxes=record.get("taxes") or [],
         customer=body.customer,
         lines=lines,
         payments=payments,
@@ -243,16 +271,17 @@ def create_unsaved(cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> R
     )
     name = fmt.filename(cfg.filename, body.bill_no, body.customer.business_name, cfg.status_labels[m.status])
     log.info(
-        "invoice rendered (not stored) bill_no=%s lines=%s total=%s payable=%s received=%s status=%s",
-        body.bill_no, len(lines), m.total, m.payable, m.received, m.status,
+        "invoice rendered (not stored) bill_no=%s lines=%s total=%s gst_option=%s gst=%s payable=%s received=%s status=%s",
+        body.bill_no, len(lines), m.total, option.key if option else None, m.gst, m.payable, m.received, m.status,
     )
     return Rendered(bill_no=body.bill_no, status=m.status, filename=name, pdf=render(doc, cfg))
 
 
 def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> Rendered:
     _check_print_mode(body)
+    option = gst_option(cfg, body)
     lines = reprice(cat, cfg, body.lines)
-    m = _money(lines, body.billing_type, cfg, body.payments)
+    m = _money(lines, option.components if option else (), cfg, body.payments)
     payments = [_payment_json(p) for p in body.payments]
 
     def new_row(bill_no: int) -> InvoiceRow:
@@ -268,6 +297,7 @@ def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate
             saving_amount=body.saving_amount if body.saving_amount else None,
             total=m.total,
             gst_amount=m.gst,
+            gst=_gst_record(option, m),
             payable=m.payable,
             received=m.received,
             status=m.status,
@@ -326,7 +356,7 @@ def add_payment(store: Store, cfg: InvoiceConfig, bill_no: int, payment: Payment
             raise InvoiceError("ALREADY_PAID", f"Invoice {bill_no} is already paid in full", 422)
         doc = document(row)
         payments = [*doc.payments, Payment(**payment.model_dump())]
-        m = _money(doc.lines, doc.billing_type, cfg, payments)
+        m = _money(doc.lines, doc_components(doc), cfg, payments)
         row.payments = [*row.payments, _payment_json(payment)]
         row.received = m.received
         row.status = m.status

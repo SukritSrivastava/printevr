@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 
 from ..catalogue import Catalogue
 from ..settings import Settings
-from . import auth, service
+from . import auth, gst, service
 from .config import InvoiceConfig
 from .models import InvoiceCreate, PaymentCreate, StaffLogin
 from .service import InvoiceError, Rendered
@@ -59,9 +59,11 @@ def create_router(
     lock = threading.Lock()
 
     def disabled_reason() -> str | None:
-        if not settings.staff_passcode:
-            return "Invoicing isn't set up on this server (STAFF_PASSCODE)"
-        if not settings.secret_key:
+        # Without STAFF_PASSCODE there is no separate staff step: the site password alone
+        # protects invoicing, so it must be set (invoicing is never open to anyone).
+        if not settings.staff_passcode and not settings.site_password:
+            return "Invoicing isn't set up on this server (SITE_PASSWORD or STAFF_PASSCODE)"
+        if settings.staff_passcode and not settings.secret_key:
             return "Invoicing isn't set up on this server (SECRET_KEY)"
         if invoice_cfg is None:
             return "Invoicing isn't set up on this server (config/invoice.yaml failed to load)"
@@ -79,6 +81,8 @@ def create_router(
         reason = disabled_reason()
         if reason:
             return error("INVOICING_DISABLED", reason, 503)
+        if not settings.staff_passcode:
+            return None  # the site-password middleware already checked the session
         token = auth.bearer(request.headers.get("authorization"))
         if not auth.valid(token, settings.secret_key, settings.staff_passcode):
             return error("AUTH_REQUIRED", "Enter the staff passcode to continue", 401)
@@ -102,6 +106,8 @@ def create_router(
         reason = disabled_reason()
         if reason:
             return error("INVOICING_DISABLED", reason, 503)
+        if not settings.staff_passcode:
+            return error("NO_STAFF_PASSCODE", "This server has no staff passcode; the site password is enough", 404)
         if not login_limiter.allow(client_ip(request)):
             return error("RATE_LIMITED", "Too many attempts - wait a minute and try again", 429)
         if not auth.passcode_matches(body.passcode, settings.staff_passcode):
@@ -118,7 +124,9 @@ def create_router(
         return {
             "enabled": reason is None,
             "storage": reason is None and bool(settings.database_url),
-            "gst_rate": str(invoice_cfg.gst_rate) if invoice_cfg else None,
+            # false: no separate staff passcode; the site password covers invoicing
+            "staff_passcode": bool(settings.staff_passcode),
+            "gst_options": gst.public(invoice_cfg.gst_options) if invoice_cfg else [],
             "advance_pct": str(invoice_cfg.advance_pct) if invoice_cfg else None,
         }
 
@@ -129,7 +137,7 @@ def create_router(
             request,
             lambda store: {
                 "next_bill_no": service.next_bill_no(store, invoice_cfg),
-                "gst_rate": str(invoice_cfg.gst_rate),
+                "gst_options": gst.public(invoice_cfg.gst_options),
                 "advance_pct": str(invoice_cfg.advance_pct),
             },
         )

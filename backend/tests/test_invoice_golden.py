@@ -221,14 +221,15 @@ def test_r1_pagination():
 
 
 def test_r2_with_gst_totals():
-    data = render(sogat_doc(billing_type="with_gst", payments=[]), cfg())
+    taxes = [{"name": "GST", "rate": "18", "amount": "26640.00"}]
+    data = render(sogat_doc(billing_type="with_gst", gst_option="gst_18", taxes=taxes, payments=[]), cfg())
     with open_pdf(data) as pdf:
         cs = chars(pdf.pages[0])
     assert find_run(cs, "TOTAL:", L.BOLD_PS, 12.70, 434.48, 687.89, y_tol=0.05)
     assert find_run(cs, "148000", L.REGULAR_PS, 12.70, 490.65, 687.80, y_tol=0.05)
     gst = [l for l in lines_by_baseline(cs) if abs(l[0]["baseline"] - 703.89) < 0.2]
     text = "".join(c["text"] for c in gst[0])
-    assert text.startswith("GST (18%):") and text.endswith("26640")
+    assert text.startswith("GST @ 18%:") and text.endswith("26640")
     colon = [c for c in gst[0] if c["text"] == ":"][0]
     assert colon["x1"] == pytest.approx(L.TOTAL_LABEL_RIGHT, abs=0.05)
     sub = [l for l in lines_by_baseline(cs) if abs(l[0]["baseline"] - 733.72) < 0.2 and l[0]["size"] < 15]

@@ -1,9 +1,10 @@
 import type { Checkout } from '../cart/CartProvider'
 import { useCart } from '../cart/CartProvider'
 import { money } from '../lib/format'
-import { fromPaise, invoiceMoney, suggestedSaving, toPaise, type MoneySettings } from '../lib/invoiceMoney'
+import { chosenGst, fromPaise, invoiceMoney, suggestedSaving, toPaise, type MoneySettings } from '../lib/invoiceMoney'
 
 const PHONE = /^[0-9 +-]{7,20}$/
+export const GST_HINT = 'Select a GST rate to generate the invoice'
 
 /** FR-P1 field rules; returns an error per field (empty object = valid). */
 export function checkoutErrors(c: Checkout, billNoRequired = false): Partial<Record<keyof Checkout, string>> {
@@ -63,7 +64,8 @@ export function CheckoutForm({ settings, showErrors, billNoRequired }: { setting
   const { checkout, lines, dispatch } = useCart()
   const errors = checkoutErrors(checkout, billNoRequired)
   const withGst = checkout.billing_type === 'with_gst'
-  const m = invoiceMoney(lines, withGst, settings)
+  const gst = chosenGst(checkout.billing_type, checkout.gst_option, settings.gstOptions)
+  const m = invoiceMoney(lines, gst?.components ?? [], settings)
   const suggested = suggestedSaving(lines)
   const advancePct = settings.advancePct
   const f = (key: keyof Checkout) => ({ error: errors[key], showError: showErrors || !!checkout[key] })
@@ -114,6 +116,35 @@ export function CheckoutForm({ settings, showErrors, billNoRequired }: { setting
           </label>
         ))}
       </fieldset>
+      {withGst && (
+        <div className="flex flex-col gap-1 sm:max-w-xs">
+          <label htmlFor="checkout-gst_option" className="text-sm font-semibold text-ink-soft">
+            GST Rate
+          </label>
+          <select
+            id="checkout-gst_option"
+            className="field"
+            required
+            value={gst ? gst.key : ''}
+            onChange={(e) => dispatch({ type: 'checkout', patch: { gst_option: e.target.value } })}
+            aria-describedby={gst ? undefined : 'checkout-gst_option-hint'}
+          >
+            <option value="" disabled>
+              Select GST rate
+            </option>
+            {settings.gstOptions.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {!gst && (
+            <p id="checkout-gst_option-hint" className="text-xs text-ink-soft">
+              {settings.gstOptions.length ? GST_HINT : "GST rates couldn't be loaded. Reload the page."}
+            </p>
+          )}
+        </div>
+      )}
       <div className="flex flex-col gap-1">
         <Field id="saving_amount" label="Saving amount (₹)" optional inputMode="decimal" {...f('saving_amount')} />
         {suggested > 0n && (
@@ -133,12 +164,14 @@ export function CheckoutForm({ settings, showErrors, billNoRequired }: { setting
           <dt>Total</dt>
           <dd>{money(fromPaise(m.total))}</dd>
         </div>
-        {withGst && (
-          <div className="flex justify-between">
-            <dt>GST ({(Number(settings.gstRate) * 100).toFixed(0)}%)</dt>
-            <dd>{money(fromPaise(m.gst))}</dd>
+        {m.taxes.map((t) => (
+          <div key={t.name} className="flex justify-between">
+            <dt>
+              {t.name} @ {t.rate}%
+            </dt>
+            <dd>{money(fromPaise(t.amount))}</dd>
           </div>
-        )}
+        ))}
         <div className="flex justify-between font-semibold">
           <dt>Payable</dt>
           <dd data-testid="payable">{money(fromPaise(m.payable))}</dd>

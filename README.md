@@ -98,7 +98,7 @@ The golden tests compare the rendered Sogat Jutti invoice with `backend/tests/fi
 | A flag's status | `Review Flags` → `Status` (anything other than `Open` clears the warning) | Reload |
 | GST, surcharge, rounding, add-ons, yields, policies | `config/products.yaml` | Reload |
 | Invoice titles and unit labels per product | `config/products.yaml` → `invoice_title`, `invoice_unit_label` | Reload |
-| Invoice wording, From address, footer, GST rate on invoices, 80/20 split, first bill number | `config/invoice.yaml` | Restart |
+| Invoice wording, From address, footer, GST rates on invoices (`gst_options`), 80/20 split, first bill number | `config/invoice.yaml` | Restart |
 
 **Reload** without a restart:
 

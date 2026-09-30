@@ -8,7 +8,6 @@ import { AddonList } from './components/AddonList'
 import { AddToCartButton } from './components/AddToCartButton'
 import { CartPage } from './components/CartPage'
 import { CustomItemDialog } from './components/CustomItemDialog'
-import { InvoicesPage } from './components/InvoicesPage'
 import { StaffProvider } from './components/StaffLoginDialog'
 import { ToastProvider } from './components/Toast'
 import { CustomSizeInputs, type DimValues } from './components/CustomSizeInputs'
@@ -109,9 +108,10 @@ function CatalogGate({ onSignedOut }: { onSignedOut: () => void }) {
   return <Workspace catalog={catalogQuery.data} onSignedOut={onSignedOut} />
 }
 
-type View = 'calculator' | 'cart' | 'invoices'
+// The Invoices page (components/InvoicesPage.tsx) is switched off for now: only Calculator and Cart.
+type View = 'calculator' | 'cart'
 
-/** Calculator, Cart and Invoices. The calculator stays mounted so its selection survives. */
+/** Calculator and Cart. The calculator stays mounted so its selection survives. */
 function Workspace({ catalog, onSignedOut }: { catalog: Catalog; onSignedOut: () => void }) {
   const [view, setView] = useState<View>('calculator')
   const settingsQuery = useQuery({
@@ -120,18 +120,15 @@ function Workspace({ catalog, onSignedOut }: { catalog: Catalog; onSignedOut: ()
     staleTime: Infinity,
     retry: 1,
   })
-  // Servers without storage have nothing to list, so the Invoices tab only shows when they store.
-  const showInvoices = settingsQuery.data?.storage ?? false
   return (
     <ToastProvider>
-      <StaffProvider>
+      <StaffProvider required={settingsQuery.data?.staff_passcode ?? true}>
         <CartProvider>
-          <ViewTabs view={view} onView={setView} showInvoices={showInvoices} />
+          <ViewTabs view={view} onView={setView} />
           <div hidden={view !== 'calculator'}>
             <QuoteDesk catalog={catalog} onSignedOut={onSignedOut} onViewCart={() => setView('cart')} />
           </div>
           {view === 'cart' && <CartPage onCalculator={() => setView('calculator')} invoiceSettings={settingsQuery.data} />}
-          {view === 'invoices' && showInvoices && <InvoicesPage />}
           <CustomItemHost />
         </CartProvider>
       </StaffProvider>
@@ -144,7 +141,7 @@ function CustomItemHost() {
   return customItem ? <CustomItemDialog /> : null
 }
 
-function ViewTabs({ view, onView, showInvoices }: { view: View; onView: (v: View) => void; showInvoices: boolean }) {
+function ViewTabs({ view, onView }: { view: View; onView: (v: View) => void }) {
   const { lines } = useCart()
   const tab = (v: View, label: React.ReactNode, extra?: string) => (
     <button
@@ -173,7 +170,6 @@ function ViewTabs({ view, onView, showInvoices }: { view: View; onView: (v: View
             </span>
           </>,
         )}
-        {showInvoices && tab('invoices', 'Invoices')}
       </div>
     </nav>
   )

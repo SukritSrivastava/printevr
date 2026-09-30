@@ -13,6 +13,13 @@ from app.settings import get_settings
 from .conftest import RIGID_TB
 
 PASSCODE = "print-shop-1234"
+GST_OPTIONS = [
+    {"key": "gst_5", "label": "5% GST", "components": [{"name": "GST", "rate": "5"}]},
+    {"key": "gst_12", "label": "12% GST", "components": [{"name": "GST", "rate": "12"}]},
+    {"key": "gst_18", "label": "18% GST", "components": [{"name": "GST", "rate": "18"}]},
+    {"key": "cgst_sgst_9_9", "label": "9% CGST + 9% SGST/UTGST",
+     "components": [{"name": "CGST", "rate": "9"}, {"name": "SGST/UTGST", "rate": "9"}]},
+]
 
 
 @pytest.fixture(scope="module")
@@ -126,7 +133,8 @@ def test_a5_bill_no_taken(client, auth):
     r = client.post("/api/invoices", json=invoice_body([k1_line(client)], bill_no=40), headers=auth)
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "BILL_NO_TAKEN" and r.json()["error"]["details"]["next_bill_no"] == 41
-    assert client.get("/api/invoices/next-bill-no", headers=auth).json() == {"next_bill_no": 41, "gst_rate": "0.18", "advance_pct": "80"}
+    assert client.get("/api/invoices/next-bill-no", headers=auth).json() == {
+        "next_bill_no": 41, "gst_options": GST_OPTIONS, "advance_pct": "80"}
 
 
 def test_a6_prices_changed_and_manual_edit(app, client, auth):
@@ -257,10 +265,26 @@ def unsaved(unsaved_app):
 
 def test_settings_endpoint(app, unsaved_app):
     assert TestClient(app).get("/api/invoice-settings").json() == {
-        "enabled": True, "storage": True, "gst_rate": "0.18", "advance_pct": "80"}
+        "enabled": True, "storage": True, "staff_passcode": True, "gst_options": GST_OPTIONS, "advance_pct": "80"}
     assert TestClient(unsaved_app).get("/api/invoice-settings").json()["storage"] is False
-    off = create_app(dataclasses.replace(get_settings(), staff_passcode=None))
+    off = create_app(dataclasses.replace(get_settings(), staff_passcode=None, site_password=None))
     assert TestClient(off).get("/api/invoice-settings").json()["enabled"] is False
+
+
+def test_site_password_alone_covers_invoicing():
+    """No STAFF_PASSCODE: the site session is the only password; no staff token is asked for."""
+    app = create_app(dataclasses.replace(
+        get_settings(), site_password="ghost-test", session_secret="s", staff_passcode=None, secret_key=None, database_url=None))
+    c = TestClient(app)
+    c.get("/api/health")
+    body = invoice_body([], bill_no=19)
+    assert c.post("/api/invoices", json=body).status_code == 401  # no site session yet
+    assert c.post("/api/login", json={"password": "ghost-test"}).status_code == 200
+    settings = c.get("/api/invoice-settings").json()
+    assert (settings["enabled"], settings["staff_passcode"]) == (True, False)
+    r = c.post("/api/invoices", json={**body, "lines": [k1_line(c)]})
+    assert r.status_code == 201 and r.content.startswith(b"%PDF")
+    assert c.post("/api/staff/login", json={"passcode": "x"}).json()["error"]["code"] == "NO_STAFF_PASSCODE"
 
 
 def test_unsaved_invoice_downloads_without_storing(unsaved):

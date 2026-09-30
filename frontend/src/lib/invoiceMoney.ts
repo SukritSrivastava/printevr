@@ -4,6 +4,7 @@
  *
  * All sums are done in integer paise with BigInt. Money is never a float.
  */
+import type { GstComponent, GstOption } from '../api/invoiceTypes'
 
 /** "88.5" -> 8850n (paise). Accepts up to 2 decimals; anything else parses as null. */
 export function toPaise(value: string | number | null | undefined): bigint | null {
@@ -28,7 +29,7 @@ function divRound(n: bigint, d: bigint): bigint {
   return (n * 2n + d) / (2n * d)
 }
 
-/** "0.18" -> [18n, 100n]; "80" -> [80n, 1n]. */
+/** "0.18" -> [18n, 100n]; "80" -> [80n, 1n]; "9" -> [9n, 1n]. */
 function ratio(value: string): [bigint, bigint] {
   const [whole, frac = ''] = value.trim().split('.')
   const scale = 10n ** BigInt(frac.length)
@@ -43,8 +44,16 @@ export function lineSubtotal(quantity: number | string, unitPrice: string): bigi
   return divRound(q * p, 100n)
 }
 
+export interface TaxRow {
+  name: string
+  rate: string // percent
+  amount: bigint
+}
+
 export interface InvoiceMoney {
   total: bigint
+  /** One per GST component; empty without GST billing. */
+  taxes: TaxRow[]
   gst: bigint
   payable: bigint
   advance: bigint
@@ -54,27 +63,39 @@ export interface InvoiceMoney {
 }
 
 export interface MoneySettings {
-  gstRate: string // "0.18"
+  gstOptions: GstOption[] // from the server; empty until loaded
   advancePct: string // "80"
 }
 
-export const DEFAULT_MONEY_SETTINGS: MoneySettings = { gstRate: '0.18', advancePct: '80' }
+export const DEFAULT_MONEY_SETTINGS: MoneySettings = { gstOptions: [], advancePct: '80' }
 
+/** The GST option picked for With GST billing, or undefined (without GST, or none picked yet). */
+export function chosenGst(billing: string, key: string, options: GstOption[]): GstOption | undefined {
+  return billing === 'with_gst' ? options.find((o) => o.key === key) : undefined
+}
+
+/**
+ * `gst` is the chosen option's components (empty = no GST). Each is charged on the total and
+ * rounded half up to paise on its own, exactly like the server (backend/app/invoice/gst.py).
+ */
 export function invoiceMoney(
   lines: { quantity: number | string; unit_price: string }[],
-  withGst: boolean,
+  gst: GstComponent[],
   settings: MoneySettings = DEFAULT_MONEY_SETTINGS,
   payments: (string | null)[] = [],
 ): InvoiceMoney {
   const total = lines.reduce((sum, l) => sum + lineSubtotal(l.quantity, l.unit_price), 0n)
-  const [gn, gd] = ratio(settings.gstRate)
-  const gst = withGst ? divRound(total * gn, gd) : 0n
-  const payable = total + gst
+  const taxes = gst.map((c) => {
+    const [rn, rd] = ratio(c.rate)
+    return { name: c.name, rate: c.rate, amount: divRound(total * rn, rd * 100n) }
+  })
+  const gstTotal = taxes.reduce((sum, t) => sum + t.amount, 0n)
+  const payable = total + gstTotal
   const [an, ad] = ratio(settings.advancePct)
   const advance = divRound(payable * an, ad * 100n)
   const received = payments.reduce((sum, p) => sum + (toPaise(p) ?? 0n), 0n)
   const status = received > payable ? 'overpaid' : received === 0n ? 'unpaid' : received === payable ? 'paid' : 'part_paid'
-  return { total, gst, payable, advance, balance: payable - advance, received, status }
+  return { total, taxes, gst: gstTotal, payable, advance, balance: payable - advance, received, status }
 }
 
 /**

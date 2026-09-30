@@ -13,6 +13,7 @@ export interface Checkout {
   bill_no: string
   invoice_date: string // YYYY-MM-DD
   billing_type: InvoiceBilling
+  gst_option: string // a GstOption key; '' = not picked yet
   saving_amount: string
 }
 
@@ -43,6 +44,7 @@ export const emptyCheckout = (): Checkout => ({
   bill_no: '',
   invoice_date: todayIST(),
   billing_type: 'without_gst',
+  gst_option: '',
   saving_amount: '',
 })
 

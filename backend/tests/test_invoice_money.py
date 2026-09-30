@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.invoice import config as invoice_config
-from app.invoice import fmt, terms
+from app.invoice import fmt, gst, terms
 from app.invoice.money import Overpaid, compute, line_subtotal
 from app.settings import get_settings
 
@@ -31,7 +31,8 @@ def sogat_subtotals(fixture):
 
 def run(cfg, subtotals, billing="without_gst", payments=()):
     entries = [terms.PaymentEntry(D(a), date.fromisoformat(d)) for a, d in payments]
-    m = compute(subtotals, billing, cfg.gst_rate, cfg.advance_pct, [p.amount for p in entries])
+    components = gst.find(cfg.gst_options, "gst_18").components if billing == "with_gst" else ()
+    m = compute(subtotals, components, cfg.advance_pct, [p.amount for p in entries])
     return m, terms.lines(cfg.payment_terms, m, cfg.advance_pct, entries)
 
 

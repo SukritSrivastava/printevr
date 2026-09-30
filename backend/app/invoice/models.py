@@ -85,12 +85,23 @@ class Payment(_Model):
     recorded_at: str | None = None
 
 
+class TaxLine(_Model):
+    """One GST row on the invoice, e.g. CGST @ 9% = 900.00."""
+
+    name: str = Field(min_length=1, max_length=20)
+    rate: Decimal = Field(ge=0, le=100)  # percent
+    amount: Decimal = Field(ge=0, decimal_places=2)
+
+
 class InvoiceDocument(_Model):
     """Everything the PDF shows. Stored invoices are rendered from this, never re-priced."""
 
     bill_no: int = Field(ge=1, le=10_000_000)
     invoice_date: date
     billing_type: Literal["without_gst", "with_gst"] = "without_gst"
+    # With GST billing: the option chosen and its tax rows as issued (config/invoice.yaml gst_options).
+    gst_option: str | None = None
+    taxes: list[TaxLine] = Field(default_factory=list, max_length=4)
     customer: Customer
     lines: list[CartLine] = Field(min_length=1, max_length=MAX_LINES)
     payments: list[Payment] = Field(default_factory=list, max_length=20)
@@ -101,6 +112,8 @@ class InvoiceCreate(_Model):
     bill_no: int | None = Field(default=None, ge=1, le=10_000_000)
     invoice_date: date
     billing_type: Literal["without_gst", "with_gst"] = "without_gst"
+    # A key from config/invoice.yaml gst_options; required (400 otherwise) with GST billing.
+    gst_option: str | None = Field(default=None, max_length=40)
     customer: Customer
     lines: list[CartLine] = Field(min_length=1, max_length=MAX_LINES)
     payments: list[Payment] = Field(default_factory=list, max_length=4)

@@ -36,6 +36,21 @@ export interface CartLine extends InvoiceLineDraft {
 }
 
 export type InvoiceBilling = 'without_gst' | 'with_gst'
+
+/**
+ * A GST rate for With GST billing. Defined once, in config/invoice.yaml (gst_options); the
+ * cart gets the list from GET /api/invoice-settings and sends back only the key.
+ */
+export interface GstOption {
+  key: string // "gst_18"
+  label: string // "18% GST"
+  components: GstComponent[]
+}
+
+export interface GstComponent {
+  name: string // "CGST"
+  rate: string // percent: "9"
+}
 export type PaymentMode = 'upi' | 'cash' | 'bank_transfer' | 'cheque'
 
 export interface Customer {
@@ -56,6 +71,8 @@ export interface InvoiceCreate {
   bill_no: number | null
   invoice_date: string
   billing_type: InvoiceBilling
+  /** A GstOption key; required with GST billing, null without. */
+  gst_option: string | null
   customer: Customer
   lines: CartLine[]
   payments: PaymentInput[]
@@ -89,13 +106,15 @@ export interface InvoiceSettings {
   enabled: boolean
   /** false: invoices are rendered and downloaded but not stored (no list, Bill No typed in). */
   storage: boolean
-  gst_rate: string | null
+  /** false: no separate staff passcode; the site password covers invoicing. */
+  staff_passcode: boolean
+  gst_options: GstOption[]
   advance_pct: string | null
 }
 
 export interface NextBillNo {
   next_bill_no: number
-  gst_rate: string
+  gst_options: GstOption[]
   advance_pct: string
 }
 

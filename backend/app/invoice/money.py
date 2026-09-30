@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Iterable
 
+from .gst import GstComponent, TaxAmount, tax_amounts
+
 PAISA = Decimal("0.01")
 ZERO = Decimal("0.00")
 
@@ -25,7 +27,7 @@ def line_subtotal(quantity: Decimal, unit_price: Decimal) -> Decimal:
 @dataclass(frozen=True)
 class Money:
     total: Decimal  # T
-    gst: Decimal  # G
+    gst: Decimal  # G: sum of the tax rows
     payable: Decimal  # P
     advance: Decimal  # A
     balance: Decimal  # B
@@ -35,6 +37,7 @@ class Money:
     excess: Decimal
     balance_due: Decimal
     status: str  # unpaid | part_paid | paid
+    taxes: tuple[TaxAmount, ...] = ()  # one per GST component; empty without GST billing
 
 
 def status_for(received: Decimal, payable: Decimal) -> str:
@@ -47,14 +50,17 @@ def status_for(received: Decimal, payable: Decimal) -> str:
 
 def compute(
     subtotals: Iterable[Decimal],
-    billing_type: str,
-    gst_rate: Decimal,
+    gst_components: Iterable[GstComponent],
     advance_pct: Decimal,
     payments: Iterable[Decimal] = (),
 ) -> Money:
-    """Totals for one invoice. Raises Overpaid when payments exceed the payable amount."""
+    """Totals for one invoice. `gst_components` is empty for Without GST billing.
+
+    Raises Overpaid when payments exceed the payable amount.
+    """
     total = money(sum((Decimal(s) for s in subtotals), ZERO))
-    gst = money(total * Decimal(gst_rate)) if billing_type == "with_gst" else ZERO
+    taxes = tax_amounts(total, gst_components)
+    gst = money(sum((t.amount for t in taxes), ZERO))
     payable = money(total + gst)
     advance = money(payable * Decimal(advance_pct) / 100)
     balance = money(payable - advance)
@@ -73,4 +79,5 @@ def compute(
         excess=money(excess),
         balance_due=money(balance - excess),
         status=status_for(received, payable),
+        taxes=taxes,
     )

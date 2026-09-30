@@ -15,6 +15,7 @@ from reportlab.pdfgen import canvas as rl_canvas
 from . import fmt, terms
 from . import layout as L
 from .config import InvoiceConfig
+from .gst import LEGACY_COMPONENTS, GstComponent
 from .models import InvoiceDocument
 from .money import Money, compute, line_subtotal
 from .paginate import Bar, Box, Dot, Image, Op, Pill, Text, layout_box, layout_row, paginate, wrap_runs
@@ -27,9 +28,18 @@ class Composed:
     title: str
 
 
+def doc_components(doc: InvoiceDocument) -> tuple[GstComponent, ...]:
+    """The GST components an issued invoice was charged: stored with it, never re-read from config."""
+    if doc.billing_type != "with_gst":
+        return ()
+    if not doc.taxes:
+        return LEGACY_COMPONENTS
+    return tuple(GstComponent(t.name, t.rate) for t in doc.taxes)
+
+
 def document_money(doc: InvoiceDocument, cfg: InvoiceConfig) -> Money:
     subtotals = [line_subtotal(Decimal(str(l.quantity)), l.unit_price) for l in doc.lines]
-    return compute(subtotals, doc.billing_type, cfg.gst_rate, cfg.advance_pct, [p.amount for p in doc.payments])
+    return compute(subtotals, doc_components(doc), cfg.advance_pct, [p.amount for p in doc.payments])
 
 
 def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
@@ -41,8 +51,7 @@ def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
         terms.title(cfg.payment_terms, doc.billing_type),
         terms.lines(cfg.payment_terms, m, cfg.advance_pct, entries),
     )
-    with_gst = doc.billing_type == "with_gst"
-    plans = paginate([r.height for r in rows], box.height, with_gst)
+    plans = paginate([r.height for r in rows], box.height, len(m.taxes))
 
     pages: list[list[Op]] = []
     for plan in plans:
@@ -139,13 +148,15 @@ def _totals_and_footer(doc: InvoiceDocument, cfg: InvoiceConfig, m: Money) -> li
     ops: list[Op] = []
     lx, ly, lfont, lsize, ltext = L.TOTAL_LABEL
     vx, vy, vfont, vsize = L.TOTAL_VALUE
-    lift = L.GST_LIFT if doc.billing_type == "with_gst" else 0.0
-    ops.append(Text(lx, ly - lift, ltext, lfont, lsize))
-    ops.append(Text(vx, vy - lift, fmt.amount(m.total), vfont, vsize, "right"))
-    if doc.billing_type == "with_gst":
-        label = cfg.totals["gst_label"].format(gst_pct=terms.pct(cfg.gst_rate * 100))
-        ops.append(Text(L.TOTAL_LABEL_RIGHT, ly, label, lfont, lsize, "right"))
-        ops.append(Text(vx, vy, fmt.amount(m.gst), vfont, vsize, "right"))
+    # One tax row per GST component, the last on the old TOTAL line; TOTAL moves up a line per row.
+    rows = len(m.taxes)
+    ops.append(Text(lx, ly - L.GST_LIFT * rows, ltext, lfont, lsize))
+    ops.append(Text(vx, vy - L.GST_LIFT * rows, fmt.amount(m.total), vfont, vsize, "right"))
+    for i, tax in enumerate(m.taxes):
+        lift = L.GST_LIFT * (rows - 1 - i)
+        label = cfg.totals["gst_label"].format(name=tax.name, rate=terms.pct(tax.rate))
+        ops.append(Text(L.TOTAL_LABEL_RIGHT, ly - lift, label, lfont, lsize, "right"))
+        ops.append(Text(vx, vy - lift, fmt.amount(tax.amount), vfont, vsize, "right"))
 
     px0, px1, ptop, pbottom = L.SUB_PILL
     ops.append(Pill(px0, px1, ptop, pbottom))
@@ -176,7 +187,10 @@ def _totals_and_footer(doc: InvoiceDocument, cfg: InvoiceConfig, m: Money) -> li
     ops.append(_text(L.COLOUR_NOTE, f["colour_note"]))
     ops.append(_text(L.LATE_NOTE, f["late_note"], tracking="late_note"))
     ops.append(_text(L.TERMS_NOTE, f["terms_note"], tracking="terms_note"))
-    gst_note = f["gst_note_with_gst"] if doc.billing_type == "with_gst" else f["gst_note_without_gst"]
+    if m.taxes:
+        gst_note = f["gst_note_with_gst"].format(gst_pct=terms.pct(sum((t.rate for t in m.taxes), Decimal(0))))
+    else:
+        gst_note = f["gst_note_without_gst"]
     ops.append(_text(L.GST_NOTE, gst_note))
     return ops
 
