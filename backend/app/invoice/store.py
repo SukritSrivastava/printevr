@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import JSON, Date, DateTime, Integer, Numeric, String, create_engine, func, inspect, or_, select, text
+from sqlalchemy import JSON, Date, DateTime, Integer, Numeric, String, create_engine, delete, func, inspect, or_, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -47,7 +47,7 @@ class InvoiceEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     bill_no: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    event: Mapped[str] = mapped_column(String(20), nullable=False)  # created | payment_added | downloaded | deleted
+    event: Mapped[str] = mapped_column(String(20), nullable=False)  # created | payment_added | downloaded
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     detail: Mapped[dict] = mapped_column(JSON, nullable=False)  # version and amounts; never customer details
 
@@ -101,6 +101,7 @@ class Store:
         return session.scalar(select(InvoiceRow).where(InvoiceRow.bill_no == bill_no))
 
     def delete(self, session: Session, row: InvoiceRow) -> None:
+        session.execute(delete(InvoiceEvent).where(InvoiceEvent.bill_no == row.bill_no))
         session.delete(row)
 
     def exists(self, session: Session, bill_no: int) -> bool:

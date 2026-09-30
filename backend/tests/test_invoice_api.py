@@ -205,8 +205,7 @@ def test_delete_invoice(app, client, auth):
     assert client.delete("/api/invoices/19", headers=auth).json()["error"]["code"] == "NOT_FOUND"
     invoices, events = rows(app)
     assert [i.bill_no for i in invoices] == [20]
-    deleted = [e for e in events if e.event == "deleted"]
-    assert [e.bill_no for e in deleted] == [19] and "Sogat" not in str(deleted[0].detail)
+    assert {e.bill_no for e in events} == {20}  # nothing about 19 is left
 
 
 def test_a10_invoicing_disabled_without_passcode():

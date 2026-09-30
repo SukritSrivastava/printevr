@@ -35,5 +35,5 @@ Internal quoting tool. The spec is `docs/BRD-v2.1.pdf` (BRD v2.1); read the rele
   - The staff token check (401) and `INVOICING_DISABLED` (503) run in middleware, before body validation.
   - Invoicing is also disabled (503) when `SECRET_KEY` is missing.
   - **No-storage mode** (not in the BRD; production used it until 2026-10-01, when a Neon Postgres was added as `DATABASE_URL` and the Invoices tab came back): without `DATABASE_URL`, `POST /api/invoices` renders and returns the PDF without saving it, and `bill_no` is required. Routes that read stored invoices answer `503 STORAGE_DISABLED`. `GET /api/invoice-settings` (no staff token) tells the UI, which then requires the Bill No and hides the Invoices tab.
-  - `DELETE /api/invoices/{bill_no}` (not in the BRD) removes an invoice for everyone; the Invoices page asks first. Its events stay, plus a `deleted` event with amounts only. Deleting the highest bill number lets the next invoice reuse it.
+  - `DELETE /api/invoices/{bill_no}` (not in the BRD) removes an invoice for everyone; the Invoices page asks first. Its events go too (owner's choice: a deleted invoice leaves nothing in the database). Deleting the highest bill number lets the next invoice reuse it.
   - Bill No is only pre-filled once staff are signed in (the endpoint needs the token); blank means "assign the next one on print".
