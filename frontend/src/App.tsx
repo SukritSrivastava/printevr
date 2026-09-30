@@ -10,6 +10,7 @@ import { AddonList } from './components/AddonList'
 import { AddToCartButton } from './components/AddToCartButton'
 import { CartPage } from './components/CartPage'
 import { CustomItemDialog } from './components/CustomItemDialog'
+import { InvoicesPage } from './components/InvoicesPage'
 import { StaffProvider } from './components/StaffLoginDialog'
 import { ToastProvider } from './components/Toast'
 import { CustomSizeInputs } from './components/CustomSizeInputs'
@@ -21,7 +22,7 @@ import { TierSlider, type ServerTier } from './components/TierSlider'
 import { defaultConfig, fromSearch, toSearch, type CalcConfig } from './lib/calcUrl'
 import { count, qtyWithUnit } from './lib/format'
 import { CUSTOM_SIZE, DIM_FIELDS, dimensionError, findItem, normalize, quantityError, supportsCustom } from './lib/selection'
-import { CALCULATOR, CART, CalculatorLinkProvider, LOGIN, useAppNav, useCalculatorUrl, useDocumentTitle, useHistoryTracking } from './nav'
+import { CALCULATOR, CART, CalculatorLinkProvider, INVOICES, LOGIN, useAppNav, useCalculatorUrl, useDocumentTitle, useHistoryTracking } from './nav'
 
 export const DEBOUNCE_MS = 250
 
@@ -130,13 +131,12 @@ function CatalogGate({ onSignedOut }: { onSignedOut: () => void }) {
   return <Workspace catalog={catalogQuery.data} onSignedOut={onSignedOut} />
 }
 
-// The Invoices page (components/InvoicesPage.tsx) is switched off for now: only Calculator and Cart.
-type View = 'calculator' | 'cart'
+type View = 'calculator' | 'cart' | 'invoices'
 
-const VIEW_PATHS: Record<View, string> = { calculator: CALCULATOR, cart: CART }
-const TITLES: Record<string, string> = { [CALCULATOR]: 'Calculator', [CART]: 'Cart', '/checkout': 'Cart' }
+const VIEW_PATHS: Record<View, string> = { calculator: CALCULATOR, cart: CART, invoices: INVOICES }
+const TITLES: Record<string, string> = { [CALCULATOR]: 'Calculator', [CART]: 'Cart', '/checkout': 'Cart', [INVOICES]: 'Invoices' }
 
-/** Calculator and Cart. The stores sit above the screens, so switching screens keeps them. */
+/** Calculator, Cart and Invoices. The stores sit above the screens, so switching screens keeps them. */
 function Workspace({ catalog, onSignedOut }: { catalog: Catalog; onSignedOut: () => void }) {
   const settingsQuery = useQuery({
     queryKey: ['invoice-settings'],
@@ -170,11 +170,14 @@ function Screens({
 }) {
   const { pathname } = useLocation()
   const { go, backTo } = useAppNav()
-  const view = (Object.keys(VIEW_PATHS) as View[]).find((v) => VIEW_PATHS[v] === pathname) ?? null
-  useDocumentTitle(TITLES[pathname] ?? 'Page not found')
+  // Servers without storage have nothing to list, so the Invoices tab only shows when they store.
+  const showInvoices = settingsQuery.data?.storage ?? false
+  const found = (v: View) => VIEW_PATHS[v] === pathname && (v !== 'invoices' || showInvoices)
+  const view = (Object.keys(VIEW_PATHS) as View[]).find(found) ?? null
+  useDocumentTitle(view || pathname === '/checkout' ? TITLES[pathname] : 'Page not found')
   return (
     <>
-      <ViewTabs view={view} onView={(v) => go(VIEW_PATHS[v])} />
+      <ViewTabs view={view} onView={(v) => go(VIEW_PATHS[v])} showInvoices={showInvoices} />
       <div hidden={view !== 'calculator'}>
         <QuoteDesk catalog={catalog} onSignedOut={onSignedOut} onViewCart={() => go(CART)} />
       </div>
@@ -183,7 +186,7 @@ function Screens({
         <Route path={CART} element={<CartPage onCalculator={() => backTo(CALCULATOR)} invoiceSettings={settingsQuery.data} />} />
         {/* The checkout form is part of the cart (M0 screen inventory). */}
         <Route path="/checkout" element={<Navigate to={CART} replace />} />
-        {/* The Invoices page (components/InvoicesPage.tsx) is switched off for now, so /invoices is not found. */}
+        {showInvoices && <Route path={INVOICES} element={<InvoicesPage />} />}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </>
@@ -208,7 +211,7 @@ function CustomItemHost() {
   return customItem ? <CustomItemDialog /> : null
 }
 
-function ViewTabs({ view, onView }: { view: View | null; onView: (v: View) => void }) {
+function ViewTabs({ view, onView, showInvoices }: { view: View | null; onView: (v: View) => void; showInvoices: boolean }) {
   const { lines } = useCart()
   const tab = (v: View, label: React.ReactNode, extra?: string) => (
     <button
@@ -237,6 +240,7 @@ function ViewTabs({ view, onView }: { view: View | null; onView: (v: View) => vo
             </span>
           </>,
         )}
+        {showInvoices && tab('invoices', 'Invoices')}
       </div>
     </nav>
   )

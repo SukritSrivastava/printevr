@@ -70,11 +70,11 @@ Staff can add priced articles (and hand-typed custom items) to a cart, fill in S
 |---|---|---|
 | `STAFF_PASSCODE` | yes | The staff passcode. Unset = invoicing off (`503 INVOICING_DISABLED`) |
 | `SECRET_KEY` | yes, with a passcode | Signs staff tokens (12 hours). Any long random string |
-| `DATABASE_URL` | optional | Where invoices are kept. Default `sqlite:///./var/invoices.db` (repo root); **none on Vercel** |
+| `DATABASE_URL` | optional | Where invoices are kept. Default `sqlite:///./var/invoices.db` (repo root); on Vercel, a Neon Postgres |
 
 **With or without storage.** On a normal server or with `docker compose`, invoices are stored in SQLite (`var/` is a volume): bill numbers are assigned by the server and the **Invoices** tab lists them and records payments.
 
-**On Vercel** (local disk is wiped between requests) there is no default database, and that is how this site runs: invoices are **rendered and downloaded but not stored**. The cart's Bill No field is then required (it counts up by one after each print on that device), the Invoices tab is hidden, and a later payment is recorded by printing again with **Print (Paid)** and the same Bill No. Prices are still re-checked on the server and the staff passcode is still required. To store invoices there instead, set `DATABASE_URL` to a hosted Postgres (Neon, Supabase), e.g. `postgresql://user:pass@host/db?sslmode=require`; tables are created on first use.
+**On Vercel** (local disk is wiped between requests) there is no default database. Without `DATABASE_URL`, invoices are **rendered and downloaded but not stored**. The cart's Bill No field is then required (it counts up by one after each print on that device), the Invoices tab is hidden, and a later payment is recorded by printing again with **Print (Paid)** and the same Bill No. Prices are still re-checked on the server and the staff passcode is still required. This site stores them: production's `DATABASE_URL` points at a free Neon Postgres (Vercel Marketplace, `iad1`), so the Invoices tab shows there. Any hosted Postgres works, e.g. `postgresql://user:pass@host/db?sslmode=require`; tables are created on first use.
 
 ```sh
 npx vercel env add STAFF_PASSCODE production

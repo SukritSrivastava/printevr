@@ -391,13 +391,16 @@ describe('cart', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).lines[0]).toMatchObject({ source: 'custom', catalogue_unit_price: null, unit_price: '120', quantity: 50 })
   })
 
-  it('only Calculator and Cart in the top bar (the Invoices page is off for now)', async () => {
+  it('with storage: Calculator, Cart and Invoices in the top bar, and Invoices opens at /invoices', async () => {
     mockApi({ storage: true })
     const user = setup()
     renderApp()
     await openCart(user)
     const nav = screen.getByRole('navigation', { name: 'Sections' })
-    expect(within(nav).getAllByRole('button').map((b) => b.textContent?.replace(/\d+$/, ''))).toEqual(['Calculator', 'Cart'])
+    expect(within(nav).getAllByRole('button').map((b) => b.textContent?.replace(/\d+$/, ''))).toEqual(['Calculator', 'Cart', 'Invoices'])
+    await user.click(within(nav).getByRole('button', { name: 'Invoices' }))
+    expect(window.location.pathname).toBe('/invoices')
+    expect(within(nav).getByRole('button', { name: 'Invoices' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('one password: with no staff passcode on the server, printing never asks for one', async () => {
