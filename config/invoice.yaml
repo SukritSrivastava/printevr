@@ -1,6 +1,6 @@
 # Invoice settings and business text (docs/BRD-cart-invoice.md section 8.5).
 # Wording and spacing are copied from Printevr's own invoice on purpose, including
-# "Recieved" (decision D3). `**...**` marks bold text.
+# "Recieved" on part-paid invoices (decision D3). `**...**` marks bold text.
 
 bill_no_start: 19
 # GST rates staff pick from on a "With GST billing" invoice. This list is the only place
@@ -42,6 +42,9 @@ payment_terms:
   balance: "{balance_pct}% Amount:- Rs. {balance}/- (Before Dispatching the Order)"
   balance_after_excess: "{balance_pct}% Amount:- Rs. {balance}/-  (-)  {excess}/-  =  **{balance_due}/-** (Before Dispatching the Order)"
   paid_in_full: "**Payment Status:- PAID IN FULL**"
+  # Paid in full: the 80% / 20% lines are replaced by these two (spelled "Received").
+  paid_received: "Received Amount (100%):- Rs. {amount}/- ({date})"
+  paid_pending: "Amount Pending:- **Rs. {pending}/-**"
 totals:
   gst_label: "{name} @ {rate}%:"  # one per tax row; the colon lines up with TOTAL:
 saving_lines:

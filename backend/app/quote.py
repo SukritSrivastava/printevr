@@ -1,6 +1,6 @@
 """Runs one calculation end to end: request -> priced line (BRD sections 6 and 7)."""
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 from . import dims as dimslib
 from .catalogue import Catalogue, Item, Product
@@ -168,6 +168,16 @@ def calculate(cat: Catalogue, req: QuoteInput) -> dict:
 
     manual = _manual_base(product, item, custom_info)
     if product.max_qty is not None and quantity > product.max_qty:
+        if item is not None:
+            # The slider still shows the item's tiers up to max_qty (FR-A9 c).
+            try:
+                chosen = addonlib.select_addons(addonlib.available_addons(product.addons, item.sample_charge), req.addons)
+            except addonlib.UnknownAddon:
+                chosen = []
+            per_unit, per_order = addonlib.split(chosen)
+            manual["data"]["tier_schedule"] = tier_schedule(
+                product, item.breakpoints, [t.price + per_unit for t in item.tiers], per_order
+            )
         return {
             **manual,
             "reason": "MANUAL_QUOTE",
@@ -357,7 +367,40 @@ def calculate(cat: Catalogue, req: QuoteInput) -> dict:
             "production_time": production_time,
             "warnings": warnings,
             "notes": notes,
+            "tier_schedule": tier_schedule(
+                product, breakpoints, [price_at(j).unit_price + per_unit for j in range(len(breakpoints))], per_order
+            ),
         },
+    }
+
+
+def tier_schedule(product: Product, breakpoints: list[int], unit_prices: list[Decimal], per_order: Decimal) -> dict:
+    """Every tier's price and overpay zone for the tier slider (BRD-tier-slider-back-nav section 7).
+
+    Uses the same subtotal rule as `better_option`, so the slider and the receipt agree.
+    """
+    spans = tierlib.schedule(
+        breakpoints,
+        unit_prices,
+        lambda unit_price, qty: totlib.subtotal(unit_price, Decimal(0), qty, per_order),
+        suggest_more=product.suggest_more,
+        max_qty=product.max_qty,
+    )
+    if product.max_qty is not None:
+        slider_max = product.max_qty
+    else:
+        slider_max = int((breakpoints[-1] * product.slider_max_multiplier).to_integral_value(rounding=ROUND_CEILING))
+    return {
+        "sale_unit": product.sale_unit,
+        "min_qty": breakpoints[0],
+        "below_min_policy": product.below_min_policy,
+        "max_qty": product.max_qty,
+        "slider_max": slider_max,
+        "suggest_more": product.suggest_more,
+        "tiers": [
+            {"qty_from": t.qty_from, "qty_to": t.qty_to, "unit_price": m2(t.unit_price), "overpay_from": t.overpay_from}
+            for t in spans
+        ],
     }
 
 

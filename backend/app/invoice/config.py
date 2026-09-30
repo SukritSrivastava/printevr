@@ -43,6 +43,8 @@ REQUIRED_TERMS = (
     "balance",
     "balance_after_excess",
     "paid_in_full",
+    "paid_received",
+    "paid_pending",
 )
 REQUIRED_FOOTER = (
     "thanks",

@@ -65,6 +65,8 @@ class Product:
     gst_rate: Decimal
     flagged_price_policy: str
     suggest_more: bool
+    # Tier slider: its right end is the top tier times this, unless the product has max_qty.
+    slider_max_multiplier: Decimal
     size_label: str
     option_labels: dict[str, str]
     addons: list[Addon]

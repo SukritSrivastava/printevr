@@ -191,6 +191,13 @@ def _product_config(entry: dict, defaults: dict, library: dict) -> dict:
         raise LoaderError(f"config: {merged['id']}: below_min_policy must be bill_at_min or block")
     if merged["flagged_price_policy"] not in ("warn", "block"):
         raise LoaderError(f"config: {merged['id']}: flagged_price_policy must be warn or block")
+    try:
+        multiplier = Decimal(str(merged.get("slider_max_multiplier", 2)))
+    except InvalidOperation:
+        multiplier = Decimal(0)
+    if not multiplier.is_finite() or multiplier < 1:
+        raise LoaderError(f"config: {merged['id']}: slider_max_multiplier must be a number of at least 1")
+    merged["_slider_max_multiplier"] = multiplier
     addons = []
     for addon_id in merged.get("addons") or []:
         spec = library.get(addon_id)
@@ -259,6 +266,7 @@ def build_catalogue(rows: list[SheetRow], flag_status: dict[str, str], config: d
             gst_rate=Decimal(str(cfg.get("gst_rate", "0.18"))),
             flagged_price_policy=cfg["flagged_price_policy"],
             suggest_more=bool(cfg.get("suggest_more", True)),
+            slider_max_multiplier=cfg["_slider_max_multiplier"],
             size_label=cfg.get("size_label") or "Size",
             option_labels=dict(cfg.get("option_labels") or {}),
             addons=cfg["_addons"],

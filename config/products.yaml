@@ -10,6 +10,7 @@ defaults:
   flagged_price_policy: warn         # or: block (decision D6)
   show_invoice_billing: false        # decision D5: hidden in the UI until accounts confirms
   suggest_more: true
+  slider_max_multiplier: 2          # tier slider ends at top tier x this, unless max_qty is set
   size_label: Size
   notes:
     - Delivery and design charges extra

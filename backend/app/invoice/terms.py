@@ -44,6 +44,15 @@ def lines(templates: dict, m: Money, advance_pct: Decimal, payments: list[Paymen
         "advance": a(m.advance),
         "balance": a(m.balance),
     }
+    if m.status == "paid":
+        # Paid in full: no 80% / 20% breakdown, just the whole amount received.
+        last = max(payments, key=lambda p: p.date)
+        return [
+            runs(templates["total"], **common),
+            runs(templates["paid_received"], **common, amount=a(m.received), date=fmt.payment_date(last.date)),
+            runs(templates["paid_pending"], **common, pending=a(m.payable - m.received)),
+            runs(templates["paid_in_full"], **common),
+        ]
     out = [runs(templates["total"], **common), runs(templates["advance"], **common)]
     if m.received > 0:
         for p in sorted(payments, key=lambda p: p.date):
@@ -55,6 +64,4 @@ def lines(templates: dict, m: Money, advance_pct: Decimal, payments: list[Paymen
         )
     else:
         out.append(runs(templates["balance"], **common))
-    if m.status == "paid":
-        out.append(runs(templates["paid_in_full"], **common))
     return out

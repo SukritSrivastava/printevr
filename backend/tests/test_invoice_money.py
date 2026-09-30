@@ -67,13 +67,35 @@ def test_p2_unpaid_shows_lines_1_2_5a(cfg, sogat):
 
 
 def test_p3_paid_in_full(cfg, sogat):
+    """Paid in full drops the 80% / 20% breakdown and shows the whole amount as received."""
     m, lines = run(cfg, sogat_subtotals(sogat), payments=[("148000", "2026-09-09")])
-    t = texts(lines)
     assert m.status == "paid"
-    assert t[3] == "Amount Pending (out of 80%) :- 118400/-  (-)  118400/-  =  0/-"
-    assert t[4] == "20% Amount:- Rs. 29600/-  (-)  29600/-  =  0/- (Before Dispatching the Order)"
-    assert t[5] == "Payment Status:- PAID IN FULL"
-    assert lines[5] == [("Payment Status:- PAID IN FULL", True)]
+    assert texts(lines) == [
+        "Total Amount:- Rs. 148000/-",
+        "Received Amount (100%):- Rs. 148000/- (9 September 2026)",
+        "Amount Pending:- Rs. 0/-",
+        "Payment Status:- PAID IN FULL",
+    ]
+    assert [[t for t, b in line if b] for line in lines] == [
+        ["Total Amount:- Rs. 148000/-"],
+        [],
+        ["Rs. 0/-"],
+        ["Payment Status:- PAID IN FULL"],
+    ]
+
+
+def test_p3b_paid_in_full_in_parts_and_with_gst(cfg, sogat):
+    # Two payments that add up to the total: the date is the one that completed it.
+    _, lines = run(cfg, sogat_subtotals(sogat), payments=[("48000", "2026-09-12"), ("100000", "2026-09-09")])
+    assert texts(lines)[1] == "Received Amount (100%):- Rs. 148000/- (12 September 2026)"
+    m, lines = run(cfg, sogat_subtotals(sogat), billing="with_gst", payments=[("174640", "2026-10-01")])
+    assert m.status == "paid"
+    assert texts(lines) == [
+        "Total Amount:- Rs. 174640/-",
+        "Received Amount (100%):- Rs. 174640/- (1 October 2026)",
+        "Amount Pending:- Rs. 0/-",
+        "Payment Status:- PAID IN FULL",
+    ]
 
 
 def test_p4_payment_above_advance(cfg, sogat):

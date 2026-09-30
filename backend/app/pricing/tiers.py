@@ -1,4 +1,5 @@
 """Tier matching, next-tier nudge and 'cheaper to order more' (FR-2, FR-3)."""
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -46,6 +47,57 @@ class BetterOption:
     qty: int
     subtotal: Decimal
     saving: Decimal
+
+
+@dataclass(frozen=True)
+class TierSpan:
+    qty_from: int
+    qty_to: int | None
+    unit_price: Decimal
+    overpay_from: int | None
+
+
+def schedule(
+    breakpoints: list[int],
+    unit_prices: list[Decimal],
+    subtotal_at: Callable[[Decimal, Decimal], Decimal],
+    *,
+    suggest_more: bool,
+    max_qty: int | None,
+) -> list[TierSpan]:
+    """Every tier with its range and overpay zone (BRD-tier-slider-back-nav section 7).
+
+    `unit_prices[i]` is tier i's unit price including per-unit add-ons; `subtotal_at(unit_price,
+    qty)` is the quote's own subtotal rule (with per-order add-ons), so the zone starts exactly
+    where `better_option` would begin to offer a higher breakpoint.
+    """
+    spans = []
+    for i, qty_from in enumerate(breakpoints):
+        last = i + 1 == len(breakpoints)
+        qty_to = max_qty if last else breakpoints[i + 1] - 1
+        overpay = None
+        if suggest_more and not last:
+            best = min(subtotal_at(unit_prices[j], Decimal(breakpoints[j])) for j in range(i + 1, len(breakpoints)))
+            overpay = _first_above(best, qty_from, qty_to, unit_prices[i], subtotal_at)
+        spans.append(TierSpan(qty_from=qty_from, qty_to=qty_to, unit_price=unit_prices[i], overpay_from=overpay))
+    return spans
+
+
+def _first_above(
+    limit: Decimal, lo: int, hi: int, unit_price: Decimal, subtotal_at: Callable[[Decimal, Decimal], Decimal]
+) -> int | None:
+    """Smallest whole quantity in [lo, hi] whose subtotal is above `limit`, or None."""
+    if unit_price <= 0:
+        return None
+    # Section 7: floor((best_higher - per_order_addons) / unit_price) + 1, where the per-order part is
+    # subtotal_at(unit_price, 0). The subtotal rounds to paise, so step to the exact edge after.
+    per_order = subtotal_at(unit_price, Decimal(0))
+    q = max(lo, int((limit - per_order) // unit_price) + 1)
+    while q > lo and subtotal_at(unit_price, Decimal(q - 1)) > limit:
+        q -= 1
+    while subtotal_at(unit_price, Decimal(q)) <= limit:
+        q += 1
+    return q if q <= hi else None
 
 
 def better_option(current_subtotal: Decimal, candidates: list[tuple[int, Decimal]]) -> BetterOption | None:
