@@ -34,6 +34,8 @@ class InvoiceRow(Base):
     # With GST billing: {"option": "cgst_sgst_9_9", "taxes": [{"name", "rate", "amount"}, ...]}.
     # Null for Without GST billing and for invoices saved before GST was selectable.
     gst: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Who generated the invoice; null for invoices saved before it was asked for.
+    salesperson: Mapped[str | None] = mapped_column(String(100), nullable=True)
     payable: Mapped[Decimal] = mapped_column(AMOUNT, nullable=False)
     received: Mapped[Decimal] = mapped_column(AMOUNT, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -89,9 +91,11 @@ class Store:
     def _add_missing_columns(self) -> None:
         """create_all() doesn't alter existing tables: add columns introduced since (all nullable)."""
         have = {c["name"] for c in inspect(self.engine).get_columns(InvoiceRow.__tablename__)}
-        if "gst" not in have:
-            with self.engine.begin() as conn:
-                conn.execute(text("ALTER TABLE invoices ADD COLUMN gst JSON"))
+        added = {"gst": "JSON", "salesperson": "VARCHAR(100)"}
+        for name, sql_type in added.items():
+            if name not in have:
+                with self.engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE invoices ADD COLUMN {name} {sql_type}"))
 
     def next_bill_no(self, session: Session, start: int) -> int:
         highest = session.scalar(select(func.max(InvoiceRow.bill_no)))

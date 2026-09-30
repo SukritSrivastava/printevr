@@ -80,6 +80,7 @@ def invoice_body(lines, print_mode="unpaid", payments=None, **changes):
         "payments": payments or [],
         "saving_amount": None,
         "print_mode": print_mode,
+        "salesperson": "Mr. X",
         **changes,
     }
 

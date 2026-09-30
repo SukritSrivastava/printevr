@@ -230,7 +230,7 @@ describe('navigation', () => {
   })
 
   it('N6: Back and Forward after Print (Paid) never print again or change the cart', async () => {
-    savedCartWith(cartLine(), { business_name: 'Sogat Jutti Store', address: 'Mohali', phone: '+91 95010 60618' })
+    savedCartWith(cartLine(), { business_name: 'Sogat Jutti Store', address: 'Mohali', phone: '+91 95010 60618', salesperson: 'Mr. X' })
     sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
     const api = mockApi()
     const user = setup()

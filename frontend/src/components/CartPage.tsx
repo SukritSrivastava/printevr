@@ -6,7 +6,7 @@ import { useCart } from '../cart/CartProvider'
 import { saveBlob } from '../lib/download'
 import { DEFAULT_MONEY_SETTINGS, chosenGst, invoiceMoney, toPaise, type MoneySettings } from '../lib/invoiceMoney'
 import { CartLineCard } from './CartLineCard'
-import { CheckoutForm, GST_HINT, checkoutErrors } from './CheckoutForm'
+import { CheckoutForm, GST_HINT, SALESPERSON_HINT, checkoutErrors, cleanName } from './CheckoutForm'
 import { PaymentDialog } from './PaymentDialog'
 import { StaffCancelled, useStaff } from './StaffLoginDialog'
 import { useToast } from './Toast'
@@ -110,8 +110,12 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
   const gst = chosenGst(checkout.billing_type, checkout.gst_option, settings.gstOptions)
   const needsGst = checkout.billing_type === 'with_gst' && !gst
   const m = invoiceMoney(lines, gst?.components ?? [], settings)
-  const formOk = Object.keys(checkoutErrors(checkout, !storage)).length === 0
+  const formErrors = checkoutErrors(checkout, !storage)
+  const formOk = Object.keys(formErrors).length === 0
   const ready = lines.length > 0 && lines.every(lineReady) && formOk && !needsGst
+  // Everything but the salesperson is filled in: say so next to the field and under the buttons.
+  const { salesperson: nameError, ...otherErrors } = formErrors
+  const onlyName = !!nameError && Object.keys(otherErrors).length === 0 && lines.length > 0 && lines.every(lineReady) && !needsGst
 
   const print = async (mode: 'unpaid' | 'paid', payments: PaymentInput[] = []) => {
     if (busyRef.current) return
@@ -133,6 +137,7 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
       payments,
       saving_amount: checkout.saving_amount && toPaise(checkout.saving_amount) ? checkout.saving_amount : null,
       print_mode: mode,
+      salesperson: cleanName(checkout.salesperson),
     }
     try {
       const pdf = await withStaff(() => createInvoice(body))
@@ -236,7 +241,7 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
         </p>
       )}
 
-      <CheckoutForm settings={settings} showErrors={false} billNoRequired={!storage} />
+      <CheckoutForm settings={settings} showErrors={false} billNoRequired={!storage} flagSalesperson={onlyName} />
 
       <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t border-rule bg-sheet/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:-mx-6 sm:px-6">
         {problem && (
@@ -256,9 +261,11 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
         <p className="text-center text-xs text-ink-soft">
           {ready
             ? 'Downloads the invoice PDF.'
-            : needsGst && lines.every(lineReady) && formOk
-              ? `${GST_HINT}.`
-              : `Downloads the invoice PDF. Fill in Ship To${storage ? '' : ' and Bill No'}${needsGst ? ', pick a GST rate' : ''} and give every line a price first.`}
+            : onlyName
+              ? `${SALESPERSON_HINT}.`
+              : needsGst && lines.every(lineReady) && formOk
+                ? `${GST_HINT}.`
+                : `Downloads the invoice PDF. Fill in Ship To${storage ? '' : ', Bill No'}, Salesperson Name${needsGst ? ', pick a GST rate' : ''} and give every line a price first.`}
         </p>
       </div>
 

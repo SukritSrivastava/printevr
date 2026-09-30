@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Checkout } from '../cart/CartProvider'
 import { useCart } from '../cart/CartProvider'
 import { money } from '../lib/format'
@@ -5,6 +6,11 @@ import { chosenGst, fromPaise, invoiceMoney, suggestedSaving, toPaise, type Mone
 
 const PHONE = /^[0-9 +-]{7,20}$/
 export const GST_HINT = 'Select a GST rate to generate the invoice'
+export const SALESPERSON_HINT = 'Enter the Salesperson Name to generate the invoice'
+export const SALESPERSON_MAX = 100
+
+/** Trimmed, with runs of spaces squeezed to one: what is sent and printed. */
+export const cleanName = (s: string) => s.trim().replace(/\s+/g, ' ')
 
 /** FR-P1 field rules; returns an error per field (empty object = valid). */
 export function checkoutErrors(c: Checkout, billNoRequired = false): Partial<Record<keyof Checkout, string>> {
@@ -16,6 +22,9 @@ export function checkoutErrors(c: Checkout, billNoRequired = false): Partial<Rec
   else if (c.bill_no && !/^[1-9]\d{0,6}$/.test(c.bill_no)) e.bill_no = 'Whole number from 1'
   if (!/^\d{4}-\d{2}-\d{2}$/.test(c.invoice_date)) e.invoice_date = 'Pick a date'
   if (c.saving_amount && toPaise(c.saving_amount) === null) e.saving_amount = 'Amount, up to 2 decimals'
+  const name = cleanName(c.salesperson ?? '')
+  if (!name) e.salesperson = 'Enter the salesperson name'
+  else if (name.length > SALESPERSON_MAX) e.salesperson = `At most ${SALESPERSON_MAX} characters`
   return e
 }
 
@@ -29,11 +38,14 @@ interface FieldProps {
   inputMode?: 'numeric' | 'decimal' | 'tel' | 'text'
   type?: string
   autoComplete?: string
+  /** Also show the error once the field has been left, even if empty. */
+  errorOnBlur?: boolean
 }
 
-function Field({ id, label, max, optional, error, showError, inputMode, type, autoComplete }: FieldProps) {
+function Field({ id, label, max, optional, error, showError, inputMode, type, autoComplete, errorOnBlur }: FieldProps) {
   const { checkout, dispatch } = useCart()
-  const invalid = showError && !!error
+  const [touched, setTouched] = useState(false)
+  const invalid = (showError || (errorOnBlur && touched)) && !!error
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={`checkout-${id}`} className="text-sm font-semibold text-ink-soft">
@@ -48,6 +60,7 @@ function Field({ id, label, max, optional, error, showError, inputMode, type, au
         autoComplete={autoComplete ?? 'off'}
         value={checkout[id]}
         onChange={(e) => dispatch({ type: 'checkout', patch: { [id]: e.target.value } })}
+        onBlur={() => setTouched(true)}
         aria-invalid={invalid ? 'true' : undefined}
         aria-describedby={invalid ? `checkout-${id}-error` : undefined}
       />
@@ -60,7 +73,18 @@ function Field({ id, label, max, optional, error, showError, inputMode, type, au
   )
 }
 
-export function CheckoutForm({ settings, showErrors, billNoRequired }: { settings: MoneySettings; showErrors: boolean; billNoRequired: boolean }) {
+export function CheckoutForm({
+  settings,
+  showErrors,
+  billNoRequired,
+  flagSalesperson = false,
+}: {
+  settings: MoneySettings
+  showErrors: boolean
+  billNoRequired: boolean
+  /** Show the salesperson error before the field is touched (everything else is ready). */
+  flagSalesperson?: boolean
+}) {
   const { checkout, lines, dispatch } = useCart()
   const errors = checkoutErrors(checkout, billNoRequired)
   const withGst = checkout.billing_type === 'with_gst'
@@ -95,6 +119,17 @@ export function CheckoutForm({ settings, showErrors, billNoRequired }: { setting
           )}
         </div>
         <Field id="invoice_date" label="Invoice date" type="date" {...f('invoice_date')} />
+        <div className="col-span-2">
+          <Field
+            id="salesperson"
+            label="Salesperson Name"
+            max={SALESPERSON_MAX}
+            autoComplete="name"
+            errorOnBlur
+            {...f('salesperson')}
+            showError={showErrors || flagSalesperson || !!checkout.salesperson}
+          />
+        </div>
       </div>
       <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
         <legend className="mb-1.5 text-sm font-semibold text-ink-soft">Billing type</legend>

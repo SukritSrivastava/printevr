@@ -15,6 +15,7 @@ export interface Checkout {
   billing_type: InvoiceBilling
   gst_option: string // a GstOption key; '' = not picked yet
   saving_amount: string
+  salesperson: string // who is generating the invoice; kept when the cart is cleared
 }
 
 export interface CartState {
@@ -46,6 +47,7 @@ export const emptyCheckout = (): Checkout => ({
   billing_type: 'without_gst',
   gst_option: '',
   saving_amount: '',
+  salesperson: '',
 })
 
 type Action =
@@ -90,7 +92,12 @@ function reducer(state: CartState, action: Action): CartState {
     case 'clear':
       return {
         lines: [],
-        checkout: { ...emptyCheckout(), bill_no: state.checkout.bill_no, billing_type: state.checkout.billing_type },
+        checkout: {
+          ...emptyCheckout(),
+          bill_no: state.checkout.bill_no,
+          billing_type: state.checkout.billing_type,
+          salesperson: state.checkout.salesperson,
+        },
       }
     case 'checkout':
       return { ...state, checkout: { ...state.checkout, ...action.patch } }

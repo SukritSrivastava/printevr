@@ -17,7 +17,7 @@ from .config import InvoiceConfig
 from .from_quote import quote_with_drafts
 from .models import CartLine, InvoiceCreate, InvoiceDocument, Payment, PaymentCreate, TaxLine
 from .money import Money, Overpaid, compute, line_subtotal
-from .render import doc_components, render
+from .render import doc_components, document_money, render
 from .store import InvoiceRow, Store, utcnow
 
 log = logging.getLogger("printevr.invoice")
@@ -43,6 +43,9 @@ class Rendered:
     filename: str
     pdf: bytes
     business_name: str = ""
+    # What the email lists: the document as printed and its money.
+    doc: InvoiceDocument | None = None
+    money: Money | None = None
 
 
 def _validation(message: str, **details) -> InvoiceError:
@@ -177,14 +180,18 @@ def document(row: InvoiceRow) -> InvoiceDocument:
             "lines": row.lines,
             "payments": row.payments,
             "saving_amount": row.saving_amount,
+            "salesperson": row.salesperson,
         }
     )
 
 
 def _rendered(row: InvoiceRow, cfg: InvoiceConfig) -> Rendered:
-    pdf = render(document(row), cfg)
+    doc = document(row)
     name = fmt.filename(cfg.filename, row.bill_no, row.business_name, cfg.status_labels[row.status])
-    return Rendered(bill_no=row.bill_no, status=row.status, filename=name, pdf=pdf, business_name=row.business_name)
+    return Rendered(
+        bill_no=row.bill_no, status=row.status, filename=name, pdf=render(doc, cfg), business_name=row.business_name,
+        doc=doc, money=document_money(doc, cfg),
+    )
 
 
 def _event_detail(row: InvoiceRow) -> dict:
@@ -214,6 +221,7 @@ def row_summary(row: InvoiceRow) -> dict:
         "received": format(row.received, "f"),
         "status": row.status,
         "version": row.version,
+        "salesperson": row.salesperson,
     }
 
 
@@ -269,14 +277,16 @@ def create_unsaved(cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> R
         lines=lines,
         payments=payments,
         saving_amount=body.saving_amount if body.saving_amount else None,
+        salesperson=body.salesperson,
     )
     name = fmt.filename(cfg.filename, body.bill_no, body.customer.business_name, cfg.status_labels[m.status])
     log.info(
-        "invoice rendered (not stored) bill_no=%s lines=%s total=%s gst_option=%s gst=%s payable=%s received=%s status=%s",
-        body.bill_no, len(lines), m.total, option.key if option else None, m.gst, m.payable, m.received, m.status,
+        "invoice rendered (not stored) bill_no=%s lines=%s total=%s gst_option=%s gst=%s payable=%s received=%s status=%s salesperson=%r",
+        body.bill_no, len(lines), m.total, option.key if option else None, m.gst, m.payable, m.received, m.status, body.salesperson,
     )
     return Rendered(
-        bill_no=body.bill_no, status=m.status, filename=name, pdf=render(doc, cfg), business_name=body.customer.business_name
+        bill_no=body.bill_no, status=m.status, filename=name, pdf=render(doc, cfg), business_name=body.customer.business_name,
+        doc=doc, money=m,
     )
 
 
@@ -301,6 +311,7 @@ def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate
             total=m.total,
             gst_amount=m.gst,
             gst=_gst_record(option, m),
+            salesperson=body.salesperson,
             payable=m.payable,
             received=m.received,
             status=m.status,
@@ -344,8 +355,8 @@ def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate
             raise InvoiceError("BILL_NO_CONFLICT", "Couldn't assign a bill number - try again", 409)
 
     log.info(
-        "invoice created bill_no=%s lines=%s total=%s payable=%s received=%s status=%s",
-        row.bill_no, len(lines), row.total, row.payable, row.received, row.status,
+        "invoice created bill_no=%s lines=%s total=%s payable=%s received=%s status=%s salesperson=%r",
+        row.bill_no, len(lines), row.total, row.payable, row.received, row.status, row.salesperson,
     )
     return _rendered(row, cfg)
 

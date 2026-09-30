@@ -97,6 +97,8 @@ def _page_one_top(doc: InvoiceDocument, cfg: InvoiceConfig) -> list[Op]:
         _text(L.BILL_LABEL, "Bill No"),
         _text(L.BILL_VALUE, L.VALUE_PREFIX + str(doc.bill_no)),
     ]
+    if doc.salesperson:
+        ops += _salesperson(doc.salesperson, cfg.salesperson_label)
     for heading, bar in ((L.SHIP_TO_HEADING, L.SHIP_TO_RULE), (L.FROM_HEADING, L.FROM_RULE)):
         x, y, font, size, text = heading
         ops.append(Text(x, y, text, font, size, char_space=L.TRACKING.get(text, 0.0)))
@@ -106,6 +108,24 @@ def _page_one_top(doc: InvoiceDocument, cfg: InvoiceConfig) -> list[Op]:
         ops.append(Text(L.FROM_LINES_X, y, text, font, size))
     ops += _ship_to(doc)
     return ops
+
+
+def _salesperson(name: str, label: str) -> list[Op]:
+    """`Salesperson  :  Mr. X` under Bill No: same font and size, shrinking (then cut short) to fit the band."""
+    x, y, font, size = L.SALES_LABEL
+    value_x = x + L.width(label, font, size) + L.SALES_VALUE_GAP
+    name_x = value_x + L.width(L.VALUE_PREFIX, font, size)
+    room = L.SALES_VALUE_MAX_X - name_x
+    name_size = size
+    while L.width(name, font, name_size) > room and name_size > L.SALES_MIN_SIZE:
+        name_size = max(L.SALES_MIN_SIZE, round(name_size - L.SALES_SHRINK_STEP, 2))
+    if L.width(name, font, name_size) > room:
+        while name and L.width(name.rstrip() + "...", font, name_size) > room:
+            name = name[:-1]
+        name = name.rstrip() + "..."
+    if name_size == size:
+        return [Text(x, y, label, font, size), Text(value_x, y, L.VALUE_PREFIX + name, font, size)]
+    return [Text(x, y, label, font, size), Text(value_x, y, L.VALUE_PREFIX, font, size), Text(name_x, y, name, font, name_size)]
 
 
 def _ship_to(doc: InvoiceDocument) -> list[Op]:

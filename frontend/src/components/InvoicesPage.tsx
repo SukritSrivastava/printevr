@@ -157,7 +157,10 @@ export function InvoicesPage() {
                 <tr key={row.bill_no} className="border-b border-rule last:border-0">
                   <td className="px-3 py-2 font-semibold">{row.bill_no}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{row.invoice_date}</td>
-                  <td className="px-3 py-2">{row.business_name}</td>
+                  <td className="px-3 py-2">
+                    {row.business_name}
+                    {row.salesperson && <span className="block text-xs text-ink-soft">by {row.salesperson}</span>}
+                  </td>
                   <td className="px-3 py-2 text-right">{money(row.payable)}</td>
                   <td className="px-3 py-2 text-right">{money(row.received)}</td>
                   <td className="px-3 py-2">

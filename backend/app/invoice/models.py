@@ -1,4 +1,5 @@
 """Pydantic shapes for cart lines and invoices (BRD-cart-invoice sections 4 and 8.4)."""
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -12,6 +13,18 @@ MAX_QTY = Decimal(10_000_000)
 MAX_PRICE = Decimal(10_000_000)
 
 Money = Annotated[Decimal, Field(ge=Decimal("0.01"), le=MAX_PRICE, decimal_places=2)]
+
+SALESPERSON_MAX = 100
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def clean_salesperson(v: str | None) -> str | None:
+    """One line of text: runs of spaces squeezed to one; tabs, newlines and other controls refused."""
+    if v is None:
+        return None
+    if _CONTROL.search(v):
+        raise ValueError("Salesperson name must be plain text on one line")
+    return " ".join(v.split()) or None
 
 
 class _Model(BaseModel):
@@ -106,6 +119,13 @@ class InvoiceDocument(_Model):
     lines: list[CartLine] = Field(min_length=1, max_length=MAX_LINES)
     payments: list[Payment] = Field(default_factory=list, max_length=20)
     saving_amount: Decimal | None = Field(default=None, ge=0, le=MAX_PRICE, decimal_places=2)
+    # Who generated the invoice. None on invoices saved before it was asked for.
+    salesperson: str | None = Field(default=None, max_length=SALESPERSON_MAX)
+
+    @field_validator("salesperson")
+    @classmethod
+    def salesperson_text(cls, v: str | None) -> str | None:
+        return clean_salesperson(v)
 
 
 class InvoiceCreate(_Model):
@@ -119,6 +139,15 @@ class InvoiceCreate(_Model):
     payments: list[Payment] = Field(default_factory=list, max_length=4)
     saving_amount: Decimal | None = Field(default=None, ge=0, le=MAX_PRICE, decimal_places=2)
     print_mode: Literal["unpaid", "paid"]
+    salesperson: str = Field(min_length=1, max_length=SALESPERSON_MAX)
+
+    @field_validator("salesperson")
+    @classmethod
+    def salesperson_text(cls, v: str) -> str:
+        cleaned = clean_salesperson(v)
+        if not cleaned:
+            raise ValueError("Enter the salesperson name")
+        return cleaned
 
 
 class PaymentCreate(_Model):

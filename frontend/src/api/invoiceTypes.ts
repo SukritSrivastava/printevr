@@ -78,6 +78,8 @@ export interface InvoiceCreate {
   payments: PaymentInput[]
   saving_amount: string | null
   print_mode: 'unpaid' | 'paid'
+  /** Who generated the invoice: trimmed, 1-100 characters. Printed on the PDF and in the email. */
+  salesperson: string
 }
 
 export type InvoiceStatus = 'unpaid' | 'part_paid' | 'paid'
@@ -92,6 +94,8 @@ export interface InvoiceSummary {
   received: string
   status: InvoiceStatus
   version: number
+  /** null on invoices saved before the name was asked for */
+  salesperson?: string | null
 }
 
 export interface InvoiceList {

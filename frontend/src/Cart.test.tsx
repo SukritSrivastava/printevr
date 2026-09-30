@@ -136,7 +136,7 @@ const catalogueLine = (quantity = 350): CartLine => ({
   calc_request: { product_id: 'rigid_boxes', item_id: RIGID, options: {}, custom_dimensions: null, quantity, addons: [], billing_type: 'gst' },
 })
 
-const SHIP_TO = { business_name: 'Sogat Jutti Store', contact_person: '', address: 'Sector 67, Mohali', phone: '+91 95010 60618' }
+const SHIP_TO = { business_name: 'Sogat Jutti Store', contact_person: '', address: 'Sector 67, Mohali', phone: '+91 95010 60618', salesperson: 'Mr. X' }
 
 let downloads: string[]
 
@@ -254,12 +254,62 @@ describe('cart', () => {
     await user.type(screen.getByLabelText(/^Address/), SHIP_TO.address)
     expect(unpaid).toBeDisabled()
     await user.type(screen.getByLabelText('Phone'), SHIP_TO.phone)
+    await user.type(screen.getByLabelText('Salesperson Name'), SHIP_TO.salesperson)
     expect(unpaid).toBeDisabled() // the line still has no price
     await user.click(screen.getByRole('button', { name: 'Edit' }))
     await user.click(screen.getByRole('button', { name: 'Edit price' }))
     await user.type(screen.getByLabelText('Unit price (₹)'), '70')
     expect(unpaid).toBeEnabled()
     expect(paid).toBeEnabled()
+  })
+
+  it('Salesperson Name is required: empty or spaces block both prints with an inline error', async () => {
+    savedCart([catalogueLine()], { ...SHIP_TO, salesperson: '' })
+    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
+    const api = mockApi()
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    const unpaid = screen.getByRole('button', { name: 'Print (Unpaid as of now)' })
+    const paid = screen.getByRole('button', { name: 'Print (Paid)' })
+    const field = screen.getByLabelText('Salesperson Name')
+    expect(unpaid).toBeDisabled()
+    expect(paid).toBeDisabled()
+    // Only the name is missing: the field says so, and so does the line under the buttons.
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByText('Enter the salesperson name')).toBeInTheDocument()
+    expect(screen.getByText('Enter the Salesperson Name to generate the invoice.')).toBeInTheDocument()
+
+    await user.type(field, '    ')
+    expect(unpaid).toBeDisabled()
+    expect(screen.getByText('Enter the salesperson name')).toBeInTheDocument()
+
+    await user.clear(field)
+    await user.type(field, '  Mr.   X  ')
+    expect(field).not.toHaveAttribute('aria-invalid')
+    expect(unpaid).toBeEnabled()
+    expect(paid).toBeEnabled()
+    await user.click(unpaid)
+    await waitFor(() => expect(api.invoices).toHaveLength(1))
+    expect(api.invoices[0].salesperson).toBe('Mr. X') // trimmed, inner runs squeezed
+
+    // Clear cart keeps the name for the next invoice.
+    await user.click(await screen.findByRole('button', { name: 'Clear cart' }))
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).checkout.salesperson).toBe('  Mr.   X  ')
+  })
+
+  it('Salesperson Name shows its error once left empty, even while Ship To is incomplete', async () => {
+    savedCart([catalogueLine()])
+    mockApi()
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    const field = screen.getByLabelText('Salesperson Name')
+    expect(screen.queryByText('Enter the salesperson name')).not.toBeInTheDocument()
+    await user.click(field)
+    await user.tab()
+    expect(screen.getByText('Enter the salesperson name')).toBeInTheDocument()
+    expect(field).toHaveAttribute('maxlength', '100')
   })
 
   it('With GST billing needs a GST rate; the summary and the request follow it', async () => {
@@ -325,6 +375,7 @@ describe('cart', () => {
     expect(api.invoices).toHaveLength(1)
     expect(api.invoices[0]).toMatchObject({ print_mode: 'unpaid', payments: [], bill_no: null, billing_type: 'without_gst', gst_option: null })
     expect(api.invoices[0].customer.business_name).toBe('Sogat Jutti Store')
+    expect(api.invoices[0].salesperson).toBe('Mr. X')
     expect(await screen.findByText('Invoice 19 downloaded')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Clear cart' })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Bill No')).toHaveValue('20'))

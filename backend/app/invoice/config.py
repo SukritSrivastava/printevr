@@ -29,6 +29,7 @@ class InvoiceConfig:
     footer: dict
     # Where new invoices and payments are emailed, with subject and body text; None = no emails.
     email: dict | None = None
+    salesperson_label: str = "Salesperson"
 
     @property
     def balance_pct(self) -> Decimal:
@@ -61,14 +62,22 @@ REQUIRED_FOOTER = (
 )
 
 
-REQUIRED_EMAIL = ("to", "subject_new", "subject_payment", "body_new", "body_payment")
+REQUIRED_EMAIL = ("to", "subject_new", "subject_payment", "intro_new", "intro_payment", "labels", "status_labels")
+EMAIL_LABELS = (
+    "generated_by", "customer", "bill_no", "invoice_date", "items", "item", "quantity", "unit_price", "subtotal",
+    "total", "payable", "status", "received", "pending", "attached", "unknown_salesperson", "currency",
+)
 
 
 def _email(raw: dict | None) -> dict | None:
     if not raw:
         return None
-    email = {k: str(v) for k, v in dict(raw).items()}
+    email = {k: v if isinstance(v, dict) else str(v) for k, v in dict(raw).items()}
     missing = [f"email.{k}" for k in REQUIRED_EMAIL if not email.get(k)]
+    if isinstance(email.get("labels"), dict):
+        missing += [f"email.labels.{k}" for k in EMAIL_LABELS if k not in email["labels"]]
+    if isinstance(email.get("status_labels"), dict):
+        missing += [f"email.status_labels.{k}" for k in ("unpaid", "part_paid", "paid") if k not in email["status_labels"]]
     if missing:
         raise InvoiceConfigError(f"invoice config: missing {', '.join(missing)}")
     return email
@@ -96,6 +105,7 @@ def parse(raw: dict) -> InvoiceConfig:
             saving_lines=[str(line) for line in raw["saving_lines"]],
             footer=footer,
             email=_email(raw.get("email")),
+            salesperson_label=str(raw.get("salesperson_label") or "Salesperson"),
         )
     except KeyError as exc:
         raise InvoiceConfigError(f"invoice config: missing {exc.args[0]!r}") from None
