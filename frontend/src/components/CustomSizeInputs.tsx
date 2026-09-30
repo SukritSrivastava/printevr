@@ -1,6 +1,5 @@
+import type { DimValues } from '../lib/calcUrl'
 import { DIM_FIELDS, dimensionError } from '../lib/selection'
-
-export type DimValues = Record<'length' | 'width' | 'height' | 'side', string>
 
 interface Props {
   kind: 'box' | 'bag' | 'flat'

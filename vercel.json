@@ -15,7 +15,7 @@
       "destination": "/api/index"
     },
     {
-      "source": "/login",
+      "source": "/((?!api/|assets/)[^.]*)",
       "destination": "/index.html"
     }
   ]

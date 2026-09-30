@@ -95,6 +95,25 @@ export interface Anchor {
   unit_price: string
 }
 
+/** One tier on the slider. unit_price includes the per-unit add-ons chosen (BRD-tier-slider-back-nav 7). */
+export interface TierSpan {
+  qty_from: number
+  qty_to: number | null
+  unit_price: string
+  /** First quantity in this tier where a higher breakpoint costs less in total; null = none. */
+  overpay_from: number | null
+}
+
+export interface TierSchedule {
+  sale_unit: string
+  min_qty: number
+  below_min_policy: 'bill_at_min' | 'block'
+  max_qty: number | null
+  slider_max: number
+  suggest_more: boolean
+  tiers: TierSpan[]
+}
+
 export interface QuoteData {
   product: { id: string; name: string; category?: string; item_id?: string | null; description: string }
   quantity: {
@@ -134,6 +153,7 @@ export interface QuoteData {
   notes: string[]
   /** Invoice line drafts: [0] is the article, the rest are its per-order add-ons. */
   invoice_lines?: InvoiceLineDraft[]
+  tier_schedule?: TierSchedule
 }
 
 export type QuoteResponse =
@@ -142,7 +162,7 @@ export type QuoteResponse =
       status: 'manual_quote'
       reason: 'MANUAL_QUOTE' | 'CUSTOM_OUT_OF_RANGE'
       message: string
-      data: { product: { id: string; name: string; description: string } }
+      data: { product: { id: string; name: string; description: string }; tier_schedule?: TierSchedule }
     }
 
 export interface ApiErrorBody {

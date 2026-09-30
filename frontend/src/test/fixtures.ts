@@ -1,4 +1,4 @@
-import type { Catalog, QuoteResponse } from '../api/types'
+import type { Catalog, QuoteResponse, TierSchedule } from '../api/types'
 
 const rigidBreakpoints = [100, 250, 500, 1000, 2000].map((q) => ({ qty_from: q, label: `${q} qty` }))
 
@@ -103,4 +103,32 @@ export const C1: QuoteResponse = {
     totals: { subtotal: '26550.00', billing_type: 'gst', gst_rate_percent: '18', gst_amount: '4779.00', grand_total: '31329.00' },
     warnings: [{ code: 'CUSTOM_ESTIMATE', message: 'Estimate - final price confirmed after design review' }],
   },
+}
+
+// tier_schedule blocks as /api/calculate returns them for the 2025-26 sheet (BRD-tier-slider-back-nav A1-A5).
+const span = (qty_from: number, qty_to: number | null, unit_price: string, overpay_from: number | null) => ({ qty_from, qty_to, unit_price, overpay_from })
+
+export const RIGID_SCHEDULE: TierSchedule = {
+  sale_unit: 'box', min_qty: 100, below_min_policy: 'bill_at_min', max_qty: null, slider_max: 4000, suggest_more: true,
+  tiers: [span(100, 249, '105.00', 179), span(250, 499, '75.00', 367), span(500, 999, '55.00', 819), span(1000, 1999, '45.00', 1778), span(2000, null, '40.00', null)],
+}
+
+export const CUSTOM_SCHEDULE: TierSchedule = {
+  ...RIGID_SCHEDULE,
+  tiers: [span(100, 249, '118.50', 187), span(250, 499, '88.50', 388), span(500, 999, '68.50', 855), span(1000, 1999, '58.50', 1727), span(2000, null, '50.50', null)],
+}
+
+export const STICKER_SCHEDULE: TierSchedule = {
+  sale_unit: 'sheet', min_qty: 10, below_min_policy: 'bill_at_min', max_qty: 1000, slider_max: 1000, suggest_more: true,
+  tiers: [span(10, 30, '130.00', 27), span(31, 50, '110.00', 45), span(51, 100, '95.00', 80), span(101, 200, '75.00', 175), span(201, 500, '65.00', 347), span(501, 1000, '45.00', null)],
+}
+
+export const OUTDOOR_SCHEDULE: TierSchedule = {
+  sale_unit: 'sq ft', min_qty: 1, below_min_policy: 'bill_at_min', max_qty: null, slider_max: 602, suggest_more: false,
+  tiers: [span(1, 100, '45.00', null), span(101, 300, '35.00', null), span(301, null, '25.00', null)],
+}
+
+/** A fixture response with the tier_schedule block added. */
+export function withSchedule(r: QuoteResponse, schedule: TierSchedule = RIGID_SCHEDULE): QuoteResponse {
+  return { ...r, data: { ...r.data, tier_schedule: schedule } } as QuoteResponse
 }

@@ -10,6 +10,8 @@
   --color-cyan: #0093c9; /* process cyan: the one accent */
   --color-cyan-deep: #006e97;
   --color-cyan-wash: #e3f3fa;
+  --color-cyan-soft: #b7dff0; /* tiers already passed on the slider */
+  --color-overpay: #f2c46d; /* quantities where a higher break costs less */
   --color-save: #1d7a4e;
   --color-save-wash: #e4f4ea;
   --color-warn: #9a6200;
@@ -119,26 +121,42 @@ select.field {
   border-top: 2px dashed var(--color-rule);
 }
 
-/* Colour-control strip used as the tier ladder. */
-.strip {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: 2px;
+/* ---------- Tier slider (BRD-tier-slider-back-nav section 4) ---------- */
+.tier-hatch {
+  background: repeating-linear-gradient(135deg, #b3bcc7 0 3px, #dde3ea 3px 6px);
 }
-.strip > li {
-  position: relative;
-  min-width: 0;
+.tier-overpay {
+  background: var(--color-overpay);
 }
-.strip .patch {
-  height: 14px;
-  background: repeating-linear-gradient(90deg, #dde3ea 0 3px, #e9edf1 3px 6px);
+.tier-dot {
+  background: var(--color-stock);
+  border-color: #8b97a6;
 }
-.strip .done .patch {
-  background: #b7dff0;
+.tier-dot[data-state='passed'] {
+  background: var(--color-cyan-soft);
+  border-color: var(--color-cyan-deep);
 }
-.strip .active .patch {
-  background: var(--color-cyan);
+.tier-dot[data-state='next'] {
+  width: 1.125rem;
+  height: 1.125rem;
+  background: var(--color-save);
+  border-color: var(--color-stock);
+  box-shadow: 0 0 0 4px rgb(29 122 78 / 0.25);
+}
+.tier-dot[data-pulse='true'] {
+  animation: tier-pulse 1.1s ease-in-out infinite;
+}
+@keyframes tier-pulse {
+  50% {
+    box-shadow: 0 0 0 9px rgb(29 122 78 / 0.12);
+  }
+}
+.tier-slider:focus-visible .tier-thumb {
+  outline: 2.5px solid var(--color-cyan);
+  outline-offset: 3px;
+}
+.tier-thumb {
+  transition: transform 80ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
