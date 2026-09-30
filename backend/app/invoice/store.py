@@ -47,7 +47,7 @@ class InvoiceEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     bill_no: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    event: Mapped[str] = mapped_column(String(20), nullable=False)  # created | payment_added | downloaded
+    event: Mapped[str] = mapped_column(String(20), nullable=False)  # created | payment_added | downloaded | deleted
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     detail: Mapped[dict] = mapped_column(JSON, nullable=False)  # version and amounts; never customer details
 
@@ -99,6 +99,9 @@ class Store:
 
     def get(self, session: Session, bill_no: int) -> InvoiceRow | None:
         return session.scalar(select(InvoiceRow).where(InvoiceRow.bill_no == bill_no))
+
+    def delete(self, session: Session, row: InvoiceRow) -> None:
+        session.delete(row)
 
     def exists(self, session: Session, bill_no: int) -> bool:
         return session.scalar(select(InvoiceRow.id).where(InvoiceRow.bill_no == bill_no)) is not None

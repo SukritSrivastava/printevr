@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, NetworkError } from '../api/client'
-import { addPayment, downloadInvoice, listInvoices } from '../api/invoices'
+import { addPayment, deleteInvoice, downloadInvoice, listInvoices } from '../api/invoices'
 import type { InvoiceList, InvoiceStatus, InvoiceSummary, PaymentInput } from '../api/invoiceTypes'
 import { saveBlob } from '../lib/download'
 import { money } from '../lib/format'
 import { toPaise } from '../lib/invoiceMoney'
+import { Dialog } from './Dialog'
 import { PaymentDialog } from './PaymentDialog'
 import { StaffCancelled, useStaff } from './StaffLoginDialog'
 import { useToast } from './Toast'
@@ -36,6 +37,8 @@ export function InvoicesPage() {
   const [paying, setPaying] = useState<InvoiceSummary | null>(null)
   const [busy, setBusy] = useState<number | null>(null)
   const [payError, setPayError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<InvoiceSummary | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -86,6 +89,23 @@ export function InvoicesPage() {
       await load()
     } catch (err) {
       setPayError(describe(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const remove = async (row: InvoiceSummary) => {
+    setBusy(row.bill_no)
+    setDeleteError(null)
+    try {
+      await withStaff(() => deleteInvoice(row.bill_no))
+      setDeleting(null)
+      toast(`Invoice ${row.bill_no} deleted`)
+      // The last row of a later page: step back so the list isn't empty.
+      if (data && offset > 0 && data.invoices.length === 1) setOffset(Math.max(0, offset - PAGE))
+      else await load()
+    } catch (err) {
+      setDeleteError(describe(err))
     } finally {
       setBusy(null)
     }
@@ -168,6 +188,18 @@ export function InvoicesPage() {
                           Record payment
                         </button>
                       )}
+                      <button
+                        type="button"
+                        className="rounded-md px-2.5 py-1 font-semibold text-stop ring-1 ring-stop/40 hover:bg-stop/10 disabled:opacity-50"
+                        disabled={busy === row.bill_no}
+                        onClick={() => {
+                          setDeleteError(null)
+                          setDeleting(row)
+                        }}
+                        aria-label={`Delete invoice ${row.bill_no}`}
+                      >
+                        Delete
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -202,6 +234,32 @@ export function InvoicesPage() {
           onConfirm={(payments) => record(paying, payments)}
           onClose={() => setPaying(null)}
         />
+      )}
+
+      {deleting && (
+        <Dialog title={`Delete invoice ${deleting.bill_no}?`} onClose={() => setDeleting(null)}>
+          <p className="text-ink-soft">
+            {deleting.business_name} · {money(deleting.payable)}. It disappears from this list for everyone and can't be downloaded again. This can't be undone.
+          </p>
+          {deleteError && (
+            <p role="alert" className="mt-3 text-sm text-stop">
+              {deleteError}
+            </p>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" className="rounded-md px-4 py-2 font-semibold ring-1 ring-rule" onClick={() => setDeleting(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-stop px-4 py-2 font-semibold text-stock disabled:opacity-50"
+              disabled={busy === deleting.bill_no}
+              onClick={() => remove(deleting)}
+            >
+              Delete invoice
+            </button>
+          </div>
+        </Dialog>
       )}
     </main>
   )

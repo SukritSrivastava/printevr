@@ -176,6 +176,10 @@ def create_router(
     def add_payment(bill_no: int, body: PaymentCreate, request: Request):
         return run(request, lambda store: pdf_response(service.add_payment(store, invoice_cfg, bill_no, body)))
 
+    @router.delete("/invoices/{bill_no}")
+    def delete_invoice(bill_no: int, request: Request):
+        return run(request, lambda store: service.delete(store, bill_no))
+
     state["disabled_reason"] = disabled_reason
     state["guard"] = guard
     return router, state

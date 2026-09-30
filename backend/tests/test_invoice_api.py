@@ -194,6 +194,21 @@ def test_a9_download_is_identical(client, auth):
     assert a.status_code == 200 and a.content == b.content
 
 
+def test_delete_invoice(app, client, auth):
+    for _ in range(2):
+        assert client.post("/api/invoices", json=invoice_body([k1_line(client)]), headers=auth).status_code == 201
+    assert client.delete("/api/invoices/19").status_code == 401
+    r = client.delete("/api/invoices/19", headers=auth)
+    assert r.status_code == 200 and r.json() == {"deleted": 19}
+    assert [i["bill_no"] for i in client.get("/api/invoices", headers=auth).json()["invoices"]] == [20]
+    assert client.get("/api/invoices/19", headers=auth).status_code == 404
+    assert client.delete("/api/invoices/19", headers=auth).json()["error"]["code"] == "NOT_FOUND"
+    invoices, events = rows(app)
+    assert [i.bill_no for i in invoices] == [20]
+    deleted = [e for e in events if e.event == "deleted"]
+    assert [e.bill_no for e in deleted] == [19] and "Sogat" not in str(deleted[0].detail)
+
+
 def test_a10_invoicing_disabled_without_passcode():
     app = create_app(dataclasses.replace(get_settings(), staff_passcode=None))
     c = TestClient(app)

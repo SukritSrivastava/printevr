@@ -101,5 +101,7 @@ export function listInvoices(params: { q?: string; limit?: number; offset?: numb
 
 export const downloadInvoice = (billNo: number) => pdf(`/api/invoices/${billNo}/pdf`)
 
-export const addPayment = (billNo: number, payment: PaymentInput) =>
+export const deleteInvoice = (billNo: number) => json<{ deleted: number }>(`/api/invoices/${billNo}`, { method: 'DELETE' })
+
+export const addPayment =(billNo: number, payment: PaymentInput) =>
   pdf(`/api/invoices/${billNo}/payments`, { method: 'POST', body: JSON.stringify(payment) })

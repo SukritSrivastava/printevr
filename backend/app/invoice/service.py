@@ -368,6 +368,19 @@ def add_payment(store: Store, cfg: InvoiceConfig, bill_no: int, payment: Payment
     return _rendered(row, cfg)
 
 
+def delete(store: Store, bill_no: int) -> dict:
+    """Removes the invoice. Its events stay, plus a "deleted" one (amounts only, never customer details)."""
+    with _write_lock, store.session() as s:
+        row = store.get(s, bill_no)
+        if row is None:
+            raise InvoiceError("NOT_FOUND", f"No invoice with Bill No {bill_no}", 404)
+        store.add_event(s, bill_no, "deleted", _event_detail(row))
+        store.delete(s, row)
+        s.commit()
+    log.info("invoice deleted bill_no=%s", bill_no)
+    return {"deleted": bill_no}
+
+
 def download(store: Store, cfg: InvoiceConfig, bill_no: int) -> Rendered:
     with store.session() as s:
         row = store.get(s, bill_no)

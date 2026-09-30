@@ -403,6 +403,42 @@ describe('cart', () => {
     expect(within(nav).getByRole('button', { name: 'Invoices' })).toHaveAttribute('aria-current', 'page')
   })
 
+  it('Delete on the Invoices page asks first, then removes the invoice for everyone', async () => {
+    const summary = (bill_no: number, business_name: string) => ({
+      bill_no, business_name, invoice_date: '2026-10-01', billing_type: 'without_gst', total: '26250.00',
+      payable: '26250.00', received: '0.00', status: 'unpaid', version: 1,
+    })
+    let stored = [summary(20, 'Other Shop'), summary(19, 'Sogat Jutti Store')]
+    const deletes: string[] = []
+    mockApi({ storage: true })
+    const base = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const u = String(url)
+      if (u.includes('/api/invoices?')) return new Response(JSON.stringify({ invoices: stored, total: stored.length, limit: 25, offset: 0 }))
+      if (init?.method === 'DELETE') {
+        deletes.push(u)
+        const billNo = Number(u.split('/').pop())
+        stored = stored.filter((r) => r.bill_no !== billNo)
+        return new Response(JSON.stringify({ deleted: billNo }))
+      }
+      return base(url, init)
+    })
+    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
+    const user = setup()
+    renderApp()
+    await user.click(await screen.findByRole('button', { name: 'Invoices' }))
+    await user.click(await screen.findByRole('button', { name: 'Delete invoice 19' }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete invoice 19?' })
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(deletes).toEqual([])
+    await user.click(screen.getByRole('button', { name: 'Delete invoice 19' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete invoice' }))
+    await waitFor(() => expect(screen.queryByText('Sogat Jutti Store')).not.toBeInTheDocument())
+    expect(deletes).toEqual(['/api/invoices/19'])
+    expect(screen.getByText('Other Shop')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('one password: with no staff passcode on the server, printing never asks for one', async () => {
     savedCart([catalogueLine()], SHIP_TO)
     const api = mockApi({ staffPasscode: false })
