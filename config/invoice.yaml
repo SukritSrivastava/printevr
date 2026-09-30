@@ -26,6 +26,16 @@ advance_pct: 80
 pad_single_digit_unit_price: true
 filename: "Invoice_{bill_no}_{business}_{status}.pdf"
 status_labels: { unpaid: Unpaid, part_paid: Part-paid, paid: Paid }
+# Every new invoice and every recorded payment is emailed here with its PDF. Sending needs
+# SMTP_PASSWORD (a Gmail app password for SMTP_USER, which defaults to this address).
+# {bill_no}, {business} and {status} are filled in. Remove this block to stop the emails.
+email:
+  to: printevrdesk@gmail.com
+  subject_new: "Invoice {bill_no} · {business} · {status}"
+  subject_payment: "Payment recorded · Invoice {bill_no} · {business} · {status}"
+  body_new: "New invoice {bill_no} for {business} ({status}). The PDF is attached."
+  body_payment: "A payment was recorded on invoice {bill_no} for {business}; it is now {status}. The updated PDF is attached."
+
 unit_plurals: { box: boxes, bag: bags, card: cards, roll: rolls, sheet: sheets, label: labels, piece: pcs, pc: pcs, "sq ft": "sq ft" }
 from_lines:
   - "#Plot no - 1795 2nd Floor,"

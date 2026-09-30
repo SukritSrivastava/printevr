@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 
 from ..catalogue import Catalogue
 from ..settings import Settings
-from . import auth, gst, service
+from . import auth, gst, mailer, service
 from .config import InvoiceConfig
 from .models import InvoiceCreate, PaymentCreate, StaffLogin
 from .service import InvoiceError, Rendered
@@ -149,8 +149,11 @@ def create_router(
             if cat is None:
                 return error("DATA_NOT_LOADED", "Price data failed to load", 503)
             if store is None:
-                return pdf_response(service.create_unsaved(cat, invoice_cfg, body), 201)
-            return pdf_response(service.create(store, cat, invoice_cfg, body), 201)
+                rendered = service.create_unsaved(cat, invoice_cfg, body)
+            else:
+                rendered = service.create(store, cat, invoice_cfg, body)
+            mailer.send(settings, invoice_cfg, rendered, "new")
+            return pdf_response(rendered, 201)
 
         return run(request, action, needs_store=False)
 
@@ -174,7 +177,12 @@ def create_router(
 
     @router.post("/invoices/{bill_no}/payments")
     def add_payment(bill_no: int, body: PaymentCreate, request: Request):
-        return run(request, lambda store: pdf_response(service.add_payment(store, invoice_cfg, bill_no, body)))
+        def action(store: Store):
+            rendered = service.add_payment(store, invoice_cfg, bill_no, body)
+            mailer.send(settings, invoice_cfg, rendered, "payment")
+            return pdf_response(rendered)
+
+        return run(request, action)
 
     @router.delete("/invoices/{bill_no}")
     def delete_invoice(bill_no: int, request: Request):

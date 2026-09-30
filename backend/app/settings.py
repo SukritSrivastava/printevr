@@ -29,6 +29,11 @@ class Settings:
     secret_key: str | None = None
     database_url: str | None = None
     invoice_config_file: Path = ROOT / "config" / "invoice.yaml"
+    # Emailing invoices (config/invoice.yaml `email`). No SMTP_PASSWORD = no emails.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 465
+    smtp_user: str | None = None  # None = the `email.to` address sends to itself
+    smtp_password: str | None = None
 
 
 def _env(name: str, default: str) -> str:
@@ -63,4 +68,9 @@ def get_settings() -> Settings:
         # without DATABASE_URL, invoices are rendered and downloaded but not stored.
         database_url=_env("DATABASE_URL", "") or (None if os.getenv("VERCEL") else DEFAULT_DATABASE_URL),
         invoice_config_file=Path(_env("INVOICE_CONFIG_FILE", str(ROOT / "config" / "invoice.yaml"))),
+        smtp_host=_env("SMTP_HOST", "smtp.gmail.com"),
+        smtp_port=_env_int("SMTP_PORT", 465),
+        smtp_user=_env("SMTP_USER", "") or None,
+        # Gmail shows app passwords in groups of four; the spaces aren't part of it.
+        smtp_password=_env("SMTP_PASSWORD", "").replace(" ", "") or None,
     )

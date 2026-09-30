@@ -27,6 +27,8 @@ class InvoiceConfig:
     totals: dict
     saving_lines: list[str]
     footer: dict
+    # Where new invoices and payments are emailed, with subject and body text; None = no emails.
+    email: dict | None = None
 
     @property
     def balance_pct(self) -> Decimal:
@@ -59,6 +61,19 @@ REQUIRED_FOOTER = (
 )
 
 
+REQUIRED_EMAIL = ("to", "subject_new", "subject_payment", "body_new", "body_payment")
+
+
+def _email(raw: dict | None) -> dict | None:
+    if not raw:
+        return None
+    email = {k: str(v) for k, v in dict(raw).items()}
+    missing = [f"email.{k}" for k in REQUIRED_EMAIL if not email.get(k)]
+    if missing:
+        raise InvoiceConfigError(f"invoice config: missing {', '.join(missing)}")
+    return email
+
+
 def parse(raw: dict) -> InvoiceConfig:
     try:
         terms = dict(raw["payment_terms"])
@@ -80,6 +95,7 @@ def parse(raw: dict) -> InvoiceConfig:
             totals=dict(raw.get("totals") or {"gst_label": "{name} @ {rate}%:"}),
             saving_lines=[str(line) for line in raw["saving_lines"]],
             footer=footer,
+            email=_email(raw.get("email")),
         )
     except KeyError as exc:
         raise InvoiceConfigError(f"invoice config: missing {exc.args[0]!r}") from None

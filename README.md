@@ -71,6 +71,8 @@ Staff can add priced articles (and hand-typed custom items) to a cart, fill in S
 | `STAFF_PASSCODE` | yes | The staff passcode. Unset = invoicing off (`503 INVOICING_DISABLED`) |
 | `SECRET_KEY` | yes, with a passcode | Signs staff tokens (12 hours). Any long random string |
 | `DATABASE_URL` | optional | Where invoices are kept. Default `sqlite:///./var/invoices.db` (repo root); on Vercel, a Neon Postgres |
+| `SMTP_PASSWORD` | optional | Gmail app password. Set = every new invoice and recorded payment is emailed with its PDF to `email.to` in `config/invoice.yaml`. A failed email never stops an invoice |
+| `SMTP_USER` | optional | The Gmail account that sends. Default: the `email.to` address |
 
 **With or without storage.** On a normal server or with `docker compose`, invoices are stored in SQLite (`var/` is a volume): bill numbers are assigned by the server and the **Invoices** tab lists them and records payments.
 

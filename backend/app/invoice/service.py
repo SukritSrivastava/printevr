@@ -42,6 +42,7 @@ class Rendered:
     status: str
     filename: str
     pdf: bytes
+    business_name: str = ""
 
 
 def _validation(message: str, **details) -> InvoiceError:
@@ -183,7 +184,7 @@ def document(row: InvoiceRow) -> InvoiceDocument:
 def _rendered(row: InvoiceRow, cfg: InvoiceConfig) -> Rendered:
     pdf = render(document(row), cfg)
     name = fmt.filename(cfg.filename, row.bill_no, row.business_name, cfg.status_labels[row.status])
-    return Rendered(bill_no=row.bill_no, status=row.status, filename=name, pdf=pdf)
+    return Rendered(bill_no=row.bill_no, status=row.status, filename=name, pdf=pdf, business_name=row.business_name)
 
 
 def _event_detail(row: InvoiceRow) -> dict:
@@ -274,7 +275,9 @@ def create_unsaved(cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> R
         "invoice rendered (not stored) bill_no=%s lines=%s total=%s gst_option=%s gst=%s payable=%s received=%s status=%s",
         body.bill_no, len(lines), m.total, option.key if option else None, m.gst, m.payable, m.received, m.status,
     )
-    return Rendered(bill_no=body.bill_no, status=m.status, filename=name, pdf=render(doc, cfg))
+    return Rendered(
+        bill_no=body.bill_no, status=m.status, filename=name, pdf=render(doc, cfg), business_name=body.customer.business_name
+    )
 
 
 def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> Rendered:
