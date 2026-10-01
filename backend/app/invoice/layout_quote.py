@@ -56,8 +56,8 @@ SUB_VALUE = (538.3, 621.97, L.REGULAR, 14.95)  # right edge
 SUB_VALUE_MIN_X = 481.0
 SUB_VALUE_MIN_SIZE = 11.0
 
-# The template's UPI block (QR and details) and its two payment notes are left off: a
-# quotation carries no payment details.
+# The template's UPI block (QR and details), its two payment notes and its GST note are left off: a
+# quotation carries no payment or tax details.
 
 # ---- saving block and footer (smaller than the invoice's on this template)
 SAVING_X = 14.49
@@ -71,7 +71,6 @@ CONTACT = (11.62, 806.78, L.REGULAR, 5.70)
 EMAIL_RULE_Y = (807.1, 807.5)
 COLOUR_NOTE = (11.75, 821.89, L.REGULAR, 4.28)
 TERMS_NOTE = (11.75, 828.81, L.REGULAR, 4.28)
-GST_NOTE = (140.76, 828.88, L.REGULAR, 4.75)
 
 # ---- pagination
 ROW_RULE_LIMIT = 800.0  # pages before the last

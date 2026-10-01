@@ -435,10 +435,12 @@ def test_quotation_has_no_payment_details(client, auth):  # noqa: F811
         images = pdf.pages[0].images
     assert len(images) == 2  # the band and the Printevr logo only: no QR code
     text = pdf_text(r.content)
-    for gone in ("UPI", "Account number", "IFSC", "Account holder", "PAYMENT", "Payment", "payment", "Recieved", "Received"):
+    for gone in ("UPI", "Account number", "IFSC", "Account holder", "PAYMENT", "Payment", "payment", "Recieved", "Received",
+                 "gst", "GST", "Note:-"):
         assert gone not in text, gone
     for kept in ("THANK YOU FOR YOUR BUSINESS.", "Colours can vary", "Terms & Condition applied", "TOTAL: 26250", "SAVING"):
         assert kept in text, kept
     # Invoices keep theirs.
     inv = pdf_text(client.post("/api/invoices", json=invoice_body([k1_line(client)]), headers=auth).content)
     assert "100% OF THE PAYMENT WILL BE TAKEN IN ADVANCE FOR PRINTING ORDERS" in inv and "Late payment" in inv
+    assert "gst as applicable will be extra on total" in inv

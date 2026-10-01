@@ -12,7 +12,7 @@ Internal quoting tool. The spec is `docs/BRD-v2.1.pdf` (BRD v2.1); read the rele
 
 ## Cart and invoices (`docs/BRD-cart-invoice.md`)
 - Invoice positions, sizes and fonts live only in `backend/app/invoice/layout.py`; they were measured from `reference_bill18.pdf`. Don't change them without re-running the golden tests (`tests/test_invoice_golden.py`).
-- The quotation and GST invoice have their own layout files, measured from `docs/templates/quotation.pdf` and `docs/templates/gst_invoice.pdf`: `layout_quote.py` (+ `render_quote.py`) and `layout_gst.py` (+ `render_gst.py`). Their images are in `backend/assets/quotation/` (the band with a blank pill). The quotation carries no payment details: the template's UPI block (QR and text) and the footer's two payment notes (100% advance, late payment) are left off; invoices keep them.
+- The quotation and GST invoice have their own layout files, measured from `docs/templates/quotation.pdf` and `docs/templates/gst_invoice.pdf`: `layout_quote.py` (+ `render_quote.py`) and `layout_gst.py` (+ `render_gst.py`). Their images are in `backend/assets/quotation/` (the band with a blank pill). The quotation carries no payment details: the template's UPI block (QR and text), the footer's two payment notes (100% advance, late payment) and its GST note are left off; invoices keep them.
 - Pill and payment-box coordinates are the **outer edge** of their 1.5 pt stroke (as measured on the reference); the renderer draws the path half a stroke inside.
 - `layout.TRACKING` holds per-run letter spacing that makes the stock Montserrat TTFs line up with Canva's export. Don't remove it to "clean up": G3 fails without it.
 - Business text for invoices lives in `config/invoice.yaml`, never in code.

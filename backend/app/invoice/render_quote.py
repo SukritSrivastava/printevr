@@ -3,7 +3,7 @@
 The invoice's page (band, Date line, Ship To, From) with QUOTATION in the pill and Quote No;
 columns ITEM, QUANTITY, MARKET PRICE, DISCOUNTED PRICE, SUBTOTAL; then TOTAL, SUB TOTAL, the
 the saving block and the footer notes. No tax rows and no payment details of any kind: no
-payment terms, UPI or bank details, and none of the footer's payment notes.
+payment terms, UPI or bank details, none of the footer's payment notes and no GST note.
 """
 from . import fmt
 from . import layout as L
@@ -171,7 +171,6 @@ def _totals_and_footer(doc: InvoiceDocument, cfg: InvoiceConfig, total) -> list[
         (Q.CONTACT, f["contact_prefix"] + f["email"]),
         (Q.COLOUR_NOTE, f["colour_note"]),
         (Q.TERMS_NOTE, f["terms_note"]),
-        (Q.GST_NOTE, f["gst_note_without_gst"]),
     ):
         x, y, font, size = spec
         ops.append(Text(x, y, text, font, size))
