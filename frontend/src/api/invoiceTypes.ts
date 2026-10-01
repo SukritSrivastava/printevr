@@ -118,6 +118,8 @@ export interface InvoiceCreate {
   saving_amount: string | null
   /** Invoices only; a quotation has no payment state. */
   print_mode: 'unpaid' | 'paid' | null
+  /** Invoices only: percent due before printing when the payment is split; null = pay in full. */
+  advance_pct: string | null
 }
 
 /** "issued": a quotation, which has no payment state. */

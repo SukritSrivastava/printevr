@@ -387,3 +387,43 @@ def test_long_gst_invoice_paginates_with_totals_on_the_last_page():
     assert "INVOICE NO. 18 (continued)" in texts[1]
     for i in range(16):
         assert sum(f"CUSTOMISED TEST ARTICLE {i + 1} PRINTING" in t for t in texts) == 1
+
+
+# ---------------------------------------------------------------- pay in full, or a chosen split
+
+
+def test_invoice_defaults_to_payment_in_full(client, auth):  # noqa: F811
+    r = client.post("/api/invoices", json=invoice_body([k1_line(client)]), headers=auth)
+    lines = pdf_lines(r.content)
+    assert any(t.startswith("100% amount pending") and t.endswith("26250/-") for t in lines)
+    assert not any("20% Amount" in t or "80%" in t for t in lines)  # no split unless chosen
+    assert client.get("/api/invoices/19", headers=auth).json()["advance_pct"] == "100"
+
+
+def test_split_is_chosen_per_invoice_and_kept_for_payments(client, auth):  # noqa: F811
+    r = client.post("/api/invoices", json=invoice_body([k1_line(client)], advance_pct="70"), headers=auth)
+    lines = pdf_lines(r.content)
+    assert any(t.startswith("70% amount pending") and t.endswith("18375/-") for t in lines)
+    assert any(t.startswith("30% Amount:- Rs. 7875/-") for t in lines)
+    r = client.post("/api/invoices/19/payments", json={"amount": "1000", "date": "2026-10-01"}, headers=auth)
+    assert any(t.startswith("Amount Pending (out of 70%)") for t in pdf_lines(r.content))
+    assert client.get("/api/invoices/19", headers=auth).json()["advance_pct"] == "70"
+
+
+def test_old_invoices_without_a_choice_keep_their_80_20_split(app, client, auth):  # noqa: F811
+    raw = legacy_row(app, None)
+    lines = pdf_lines(client.get(f"/api/invoices/{raw['bill_no']}/pdf", headers=auth).content)
+    assert any(t.startswith("80% amount pending") for t in lines)
+    assert any(t.startswith("20% Amount:-") for t in lines)
+
+
+def test_quotation_has_no_advance(client, auth):  # noqa: F811
+    r = client.post("/api/invoices", json=quotation_body([k1_line(client)], advance_pct="80"), headers=auth)
+    assert r.status_code == 201
+    assert client.get("/api/invoices/1?series=quotation", headers=auth).json()["advance_pct"] is None
+
+
+@pytest.mark.parametrize("bad", ["0", "100.5", "-5", "abc"])
+def test_advance_pct_must_be_a_percent(client, auth, bad):  # noqa: F811
+    r = client.post("/api/invoices", json=invoice_body([k1_line(client)], advance_pct=bad), headers=auth)
+    assert r.status_code == 422

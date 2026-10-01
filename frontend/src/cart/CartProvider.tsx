@@ -35,6 +35,10 @@ export interface Checkout {
   eway_bill_no: string
   station: string | null
   saving_amount: string
+  /** Off = pay in full before printing (the default); on = advance_pct now, the rest before dispatch. */
+  split_payment: boolean
+  /** null = not touched: shows (and sends) the config's advance percent */
+  advance_pct: string | null
 }
 
 /** The GST invoice fields whose blank start shows a default (gst_field_defaults). */
@@ -84,6 +88,8 @@ export const emptyCheckout = (): Checkout => ({
   eway_bill_no: '',
   station: null,
   saving_amount: '',
+  split_payment: false,
+  advance_pct: null,
 })
 
 type Action =

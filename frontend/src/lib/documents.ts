@@ -63,7 +63,16 @@ export function checkoutErrors(c: Checkout, opts: { billNoRequired?: boolean; qu
   if (opts.quoteNoRequired && !/^[1-9]\d{0,6}$/.test(c.quote_no)) e.quote_no = 'Whole number from 1'
   if (!/^\d{4}-\d{2}-\d{2}$/.test(c.invoice_date)) e.invoice_date = 'Pick a date'
   if (c.saving_amount && toPaise(c.saving_amount) === null) e.saving_amount = 'Amount, up to 2 decimals'
+  if (c.split_payment && c.advance_pct !== null) {
+    const pct = toPaise(c.advance_pct)
+    if (pct === null || pct <= 0n || pct >= 10000n) e.advance_pct = 'A percent above 0 and below 100'
+  }
   return e
+}
+
+/** Percent due before printing: the split typed (or the config's), else 100 (pay in full). */
+export function advancePercent(c: Checkout, configured: string): string {
+  return c.split_payment ? (c.advance_pct ?? configured).trim() : '100'
 }
 
 const QUOTE_FIELDS: (keyof Checkout)[] = ['phone', 'quote_no', 'invoice_date', 'saving_amount']
@@ -90,6 +99,7 @@ export function printMissing(c: Checkout, lines: CartLine[], errors: CheckoutErr
     if (errors.consignee_name) out.push("enter the consignee's name")
     if (errors.buyer_gstin || errors.consignee_gstin) out.push('check the GSTIN')
   }
+  if (errors.advance_pct) out.push('check the advance %')
   if (errors.bill_no) out.push('enter the Bill No')
   if (errors.invoice_date || errors.saving_amount || (c.billing_type === 'gst' && errors.phone)) out.push('fix the fields marked in red')
   return out
@@ -144,6 +154,8 @@ export function gstDetails(c: Checkout, defaults: GstFieldDefaults): GstDetails 
 
 export interface RequestContext {
   storage: boolean
+  /** config advance_pct: what a split starts at */
+  advancePct: string
   slab: GstSlab | undefined
   defaults: GstFieldDefaults
   hsnCodes: Record<string, string>
@@ -177,5 +189,6 @@ export function documentRequest(
     payments,
     saving_amount: c.saving_amount && toPaise(c.saving_amount) ? c.saving_amount : null,
     print_mode: quotation ? null : kind,
+    advance_pct: !quotation && c.split_payment ? advancePercent(c, ctx.advancePct) : null,
   }
 }

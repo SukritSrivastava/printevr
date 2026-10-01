@@ -137,7 +137,13 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
     busyRef.current = true
     setBusy(true)
     setProblem(null)
-    const body = documentRequest(kind, checkout, lines, { storage, slab, defaults: settings.gstDefaults, hsnCodes: settings.hsnCodes }, payments)
+    const body = documentRequest(
+      kind,
+      checkout,
+      lines,
+      { storage, slab, defaults: settings.gstDefaults, hsnCodes: settings.hsnCodes, advancePct: settings.advancePct },
+      payments,
+    )
     const quotation = kind === 'quotation'
     try {
       const pdf = await withStaff(() => createInvoice(body))

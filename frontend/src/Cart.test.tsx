@@ -454,6 +454,44 @@ describe('cart', () => {
     expect(screen.getByLabelText('Bill No')).toHaveValue('7') // typed by hand: kept
   })
 
+  it('pays in full by default; a split is chosen per invoice and starts at the configured 80%', async () => {
+    savedCart([catalogueLine()], SHIP_TO)
+    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
+    const api = mockApi()
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    const summary = screen.getByLabelText('Invoice summary')
+    expect(screen.getByLabelText(/^Split payment/)).not.toBeChecked()
+    expect(within(summary).getByText('Full payment before printing').nextSibling).toHaveTextContent('₹26,250.00')
+    expect(within(summary).queryByText(/before dispatch/)).not.toBeInTheDocument()
+    const unpaid = screen.getByRole('button', { name: 'Print (Unpaid as of now)' })
+    await user.click(unpaid)
+    await waitFor(() => expect(api.invoices).toHaveLength(1))
+    expect(api.invoices[0].advance_pct).toBeNull()
+
+    await user.click(screen.getByLabelText(/^Split payment/))
+    const pct = screen.getByLabelText('Before printing (%)')
+    expect(pct).toHaveValue('80')
+    expect(within(summary).getByText('80% before printing').nextSibling).toHaveTextContent('₹21,000.00')
+    expect(within(summary).getByText('20% before dispatch').nextSibling).toHaveTextContent('₹5,250.00')
+    await user.clear(pct)
+    await user.type(pct, '150')
+    expect(unpaid).toBeDisabled()
+    expect(screen.getByText('Print: check the advance %.')).toBeInTheDocument()
+    await user.clear(pct)
+    await user.type(pct, '50')
+    expect(within(summary).getByText('50% before dispatch')).toBeInTheDocument()
+    await user.click(unpaid)
+    await waitFor(() => expect(api.invoices).toHaveLength(2))
+    expect(api.invoices[1].advance_pct).toBe('50')
+
+    // A quotation never carries a split.
+    await user.click(screen.getByRole('button', { name: 'Quotation' }))
+    await waitFor(() => expect(api.invoices).toHaveLength(3))
+    expect(api.invoices[2].advance_pct).toBeNull()
+  })
+
   it('U4: Print (Unpaid) asks for the passcode, posts no payments and downloads the named file', async () => {
     savedCart([catalogueLine()], SHIP_TO)
     const api = mockApi()

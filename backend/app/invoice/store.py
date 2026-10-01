@@ -42,6 +42,9 @@ class _Document:
     # GST invoices: {"option": "<slab key>", "taxes": [CGST, UGST, IGST]}. Null otherwise.
     gst: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     payable: Mapped[Decimal] = mapped_column(AMOUNT, nullable=False)
+    # Percent due before printing: 100 = pay in full; less = split, the rest before dispatch.
+    # Null on rows saved before it was chosen per invoice: those used config advance_pct (80).
+    advance_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2, asdecimal=True), nullable=True)
     received: Mapped[Decimal] = mapped_column(AMOUNT, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -128,7 +131,9 @@ class Store:
     def _add_missing_columns(self) -> None:
         """create_all() doesn't alter existing tables: add columns introduced since (all nullable)."""
         added = {
-            InvoiceRow.__tablename__: {"gst": "JSON", "salesperson": "VARCHAR(100)"},
+            InvoiceRow.__tablename__: {"gst": "JSON", "salesperson": "VARCHAR(100)", "advance_pct": "NUMERIC(5,2)"},
+            GstInvoiceRow.__tablename__: {"advance_pct": "NUMERIC(5,2)"},
+            QuotationRow.__tablename__: {"advance_pct": "NUMERIC(5,2)"},
             InvoiceEvent.__tablename__: {"series": "VARCHAR(16)"},
         }
         for table, columns in added.items():

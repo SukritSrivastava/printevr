@@ -58,6 +58,8 @@ def lines(templates: dict, m: Money, advance_pct: Decimal, payments: list[Paymen
         for p in sorted(payments, key=lambda p: p.date):
             out.append(runs(templates["received"], **common, amount=a(p.amount), date=fmt.payment_date(p.date)))
         out.append(runs(templates["pending"], **common, applied=a(m.applied), pending=a(m.pending)))
+    if m.balance == 0:
+        return out  # paid in full before printing: nothing is left for dispatch
     if m.excess > 0:
         out.append(
             runs(templates["balance_after_excess"], **common, excess=a(m.excess), balance_due=a(m.balance_due))

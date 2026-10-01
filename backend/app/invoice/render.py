@@ -39,9 +39,14 @@ def doc_components(doc: InvoiceDocument) -> tuple[GstComponent, ...]:
     return tuple(GstComponent(t.name, t.rate) for t in doc.taxes)
 
 
+def doc_advance_pct(doc: InvoiceDocument, cfg: InvoiceConfig) -> Decimal:
+    """Percent due before printing, as issued. Old records without one used the config's."""
+    return doc.advance_pct if doc.advance_pct is not None else cfg.advance_pct
+
+
 def document_money(doc: InvoiceDocument, cfg: InvoiceConfig) -> Money:
     subtotals = [line_subtotal(Decimal(str(l.quantity)), l.unit_price) for l in doc.lines]
-    return compute(subtotals, doc_components(doc), cfg.advance_pct, [p.amount for p in doc.payments])
+    return compute(subtotals, doc_components(doc), doc_advance_pct(doc, cfg), [p.amount for p in doc.payments])
 
 
 def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
@@ -55,7 +60,7 @@ def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
     entries = [terms.PaymentEntry(p.amount, p.date) for p in doc.payments]
     box = layout_box(
         terms.title(cfg.payment_terms, doc.billing_type),
-        terms.lines(cfg.payment_terms, m, cfg.advance_pct, entries),
+        terms.lines(cfg.payment_terms, m, doc_advance_pct(doc, cfg), entries),
     )
     plans = paginate([r.height for r in rows], box.height, len(m.taxes))
 

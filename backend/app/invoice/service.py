@@ -22,7 +22,7 @@ from .config import InvoiceConfig
 from .from_quote import quote_with_drafts
 from .models import CartLine, Customer, InvoiceCreate, InvoiceDocument, Payment, PaymentCreate, TaxLine
 from .money import Money, Overpaid, compute, line_subtotal
-from .render import doc_components, document_money, render_document
+from .render import doc_advance_pct, doc_components, document_money, render_document
 from .store import Store, utcnow
 
 log = logging.getLogger("printevr.invoice")
@@ -232,10 +232,20 @@ def _gst_record(slab: gst.GstSlab | None, m: Money) -> dict | None:
     return {"option": slab.key, "taxes": taxes}
 
 
-def _money(doc_lines: list[CartLine], components, cfg: InvoiceConfig, payments: list) -> Money:
+FULL = Decimal(100)
+
+
+def advance_for(body: InvoiceCreate) -> Decimal | None:
+    """Percent due before printing: the split chosen, else 100 (pay in full). None on a quotation."""
+    if body.document_type == "quotation":
+        return None
+    return body.advance_pct if body.advance_pct is not None else FULL
+
+
+def _money(doc_lines: list[CartLine], components, advance_pct: Decimal, payments: list) -> Money:
     subtotals = [line_subtotal(l.quantity, l.unit_price) for l in doc_lines]
     try:
-        return compute(subtotals, components, cfg.advance_pct, [p.amount for p in payments])
+        return compute(subtotals, components, advance_pct, [p.amount for p in payments])
     except Overpaid as exc:
         raise InvoiceError(
             "OVERPAID",
@@ -270,6 +280,7 @@ def document(row, series: str = "non_gst") -> InvoiceDocument:
             "lines": row.lines,
             "payments": row.payments,
             "saving_amount": row.saving_amount,
+            "advance_pct": row.advance_pct,
             "salesperson": getattr(row, "salesperson", None),
         }
     )
@@ -331,6 +342,7 @@ def row_detail(row, series: str = "non_gst") -> dict:
         "lines": row.lines,
         "payments": row.payments,
         "saving_amount": format(row.saving_amount, "f") if row.saving_amount is not None else None,
+        "advance_pct": format(row.advance_pct.normalize(), "f") if row.advance_pct is not None else None,
         "gst_amount": format(row.gst_amount, "f"),
         "gst": row.gst,
         "details": getattr(row, "details", None),
@@ -360,7 +372,7 @@ def _prepare(cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate):
     if series == "gst":
         lines = with_hsn(cat, lines)
     payments = [Payment(**p.model_dump(exclude={"recorded_at"})) for p in body.payments]
-    m = _money(lines, slab.components if slab else (), cfg, payments)
+    m = _money(lines, slab.components if slab else (), advance_for(body) or FULL, payments)
     return series, slab, lines, payments, m
 
 
@@ -385,6 +397,7 @@ def create_unsaved(cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> R
         lines=lines,
         payments=payments,
         saving_amount=body.saving_amount if body.saving_amount else None,
+        advance_pct=advance_for(body),
     )
     business = _business_name(series, body)
     status = _status(series, m)
@@ -421,6 +434,7 @@ def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate
             gst_amount=m.gst,
             gst=_gst_record(slab, m),
             payable=m.payable,
+            advance_pct=advance_for(body),
             received=m.received,
             status=_status(series, m),
             version=1,
@@ -478,7 +492,7 @@ def add_payment(store: Store, cfg: InvoiceConfig, bill_no: int, payment: Payment
             raise InvoiceError("ALREADY_PAID", f"{NAMES[series]} {bill_no} is already paid in full", 422)
         doc = document(row, series)
         payments = [*doc.payments, Payment(**payment.model_dump())]
-        m = _money(doc.lines, doc_components(doc), cfg, payments)
+        m = _money(doc.lines, doc_components(doc), doc_advance_pct(doc, cfg), payments)
         row.payments = [*row.payments, _payment_json(payment)]
         row.received = m.received
         row.status = m.status

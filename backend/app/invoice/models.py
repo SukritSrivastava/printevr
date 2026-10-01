@@ -174,6 +174,8 @@ class InvoiceDocument(_Model):
     lines: list[CartLine] = Field(min_length=1, max_length=MAX_LINES)
     payments: list[Payment] = Field(default_factory=list, max_length=20)
     saving_amount: Decimal | None = Field(default=None, ge=0, le=MAX_PRICE, decimal_places=2)
+    # Percent due before printing (100 = in full). None on old records: config advance_pct.
+    advance_pct: Decimal | None = Field(default=None, gt=0, le=100, decimal_places=2)
     # Read from old records only: never printed, no longer asked for.
     salesperson: str | None = Field(default=None, max_length=SALESPERSON_MAX)
 
@@ -198,6 +200,9 @@ class InvoiceCreate(_Model):
     saving_amount: Decimal | None = Field(default=None, ge=0, le=MAX_PRICE, decimal_places=2)
     # Invoices only (Print (Unpaid as of now) / Print (Paid)); a quotation has no payment state.
     print_mode: Literal["unpaid", "paid"] | None = None
+    # Invoices only. None = pay in full before printing; a split (e.g. 80) asks this percent
+    # before printing and the rest before dispatch. Ignored on a quotation.
+    advance_pct: Decimal | None = Field(default=None, gt=0, le=100, decimal_places=2)
 
     @property
     def series(self) -> str:
