@@ -1,22 +1,44 @@
 // Cart lines and the unsaved checkout form (BRD-cart-invoice FR-C5): React state, saved to
 // localStorage after every change. This is the team's own site, so browser storage is fine.
 import { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react'
-import type { CartLine, ChangedLine, InvoiceBilling, SpecLine } from '../api/invoiceTypes'
+import type { BillType, CartLine, ChangedLine, SpecLine } from '../api/invoiceTypes'
 
 export const STORAGE_KEY = 'printevr.cart.v1'
 
 export interface Checkout {
+  /** Ship To; on a GST invoice, the buyer (Billed to). */
   business_name: string
   contact_person: string
   address: string
   phone: string
+  /** The invoice number for the chosen bill type ('' = assign the next one on print). */
   bill_no: string
+  /** Without storage only: the next quotation number on this device. */
+  quote_no: string
   invoice_date: string // YYYY-MM-DD
-  billing_type: InvoiceBilling
-  gst_option: string // a GstOption key; '' = not picked yet
+  billing_type: BillType | '' // '' = not chosen yet (no default)
+  gst_slab: string // a GstSlab key; '' = not picked yet
+  // GST invoice only
+  buyer_gstin: string
+  consignee_same: boolean
+  consignee_name: string
+  consignee_address: string
+  consignee_phone: string
+  consignee_gstin: string
+  delivery_terms: string
+  /** null = not touched: shows (and sends) the default from config/invoice.yaml */
+  payment_terms: string | null
+  po_date: string // YYYY-MM-DD or ''
+  gr_rr_no: string
+  transport: string | null
+  vehicle_no: string
+  eway_bill_no: string
+  station: string | null
   saving_amount: string
-  salesperson: string // who is generating the invoice; kept when the cart is cleared
 }
+
+/** The GST invoice fields whose blank start shows a default (gst_field_defaults). */
+export const DEFAULTED = ['payment_terms', 'transport', 'station'] as const
 
 export interface CartState {
   lines: CartLine[]
@@ -43,11 +65,25 @@ export const emptyCheckout = (): Checkout => ({
   address: '',
   phone: '',
   bill_no: '',
+  quote_no: '1',
   invoice_date: todayIST(),
-  billing_type: 'without_gst',
-  gst_option: '',
+  billing_type: '',
+  gst_slab: '',
+  buyer_gstin: '',
+  consignee_same: true,
+  consignee_name: '',
+  consignee_address: '',
+  consignee_phone: '',
+  consignee_gstin: '',
+  delivery_terms: '',
+  payment_terms: null,
+  po_date: '',
+  gr_rr_no: '',
+  transport: null,
+  vehicle_no: '',
+  eway_bill_no: '',
+  station: null,
   saving_amount: '',
-  salesperson: '',
 })
 
 type Action =
@@ -95,8 +131,8 @@ function reducer(state: CartState, action: Action): CartState {
         checkout: {
           ...emptyCheckout(),
           bill_no: state.checkout.bill_no,
+          quote_no: state.checkout.quote_no,
           billing_type: state.checkout.billing_type,
-          salesperson: state.checkout.salesperson,
         },
       }
     case 'checkout':
@@ -109,6 +145,18 @@ function reducer(state: CartState, action: Action): CartState {
 }
 
 const validSpec = (s: unknown): s is SpecLine => !!s && typeof (s as SpecLine).value === 'string'
+
+/**
+ * A checkout saved by an older version: the bill type had a default (without_gst) and with_gst
+ * meant the old GST rates, so neither counts as a choice; the salesperson is no longer asked for.
+ */
+function migrateCheckout(saved: unknown): Checkout {
+  const raw = { ...((saved as Record<string, unknown>) ?? {}) }
+  delete raw.salesperson
+  delete raw.gst_option
+  if (raw.billing_type !== 'non_gst' && raw.billing_type !== 'gst') raw.billing_type = ''
+  return { ...emptyCheckout(), ...(raw as Partial<Checkout>) }
+}
 
 function load(): CartState {
   const empty = { lines: [], checkout: emptyCheckout() }
@@ -126,8 +174,7 @@ function load(): CartState {
       (l): l is CartLine =>
         !!l && typeof l.id === 'string' && typeof l.title === 'string' && Array.isArray(l.specs) && l.specs.every(validSpec),
     )
-    const checkout = { ...emptyCheckout(), ...(parsed.checkout ?? {}) }
-    return { lines, checkout }
+    return { lines, checkout: migrateCheckout(parsed.checkout) }
   } catch (err) {
     console.warn('Saved cart could not be read; starting with an empty cart.', err)
     return empty

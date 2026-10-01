@@ -1,35 +1,22 @@
-import { useState } from 'react'
+import type { BillType, GstFieldDefaults } from '../api/invoiceTypes'
 import type { Checkout } from '../cart/CartProvider'
 import { useCart } from '../cart/CartProvider'
+import { type CheckoutErrors, gstWarnings, lineHsn, withDefault } from '../lib/documents'
 import { money } from '../lib/format'
-import { chosenGst, fromPaise, invoiceMoney, suggestedSaving, toPaise, type MoneySettings } from '../lib/invoiceMoney'
+import { chosenSlab, fromPaise, invoiceMoney, suggestedSaving, type MoneySettings } from '../lib/invoiceMoney'
 
-const PHONE = /^[0-9 +-]{7,20}$/
-export const GST_HINT = 'Select a GST rate to generate the invoice'
-export const SALESPERSON_HINT = 'Enter the Salesperson Name to generate the invoice'
-export const SALESPERSON_MAX = 100
+export const SLAB_PLACEHOLDER = 'Select GST slab'
 
-/** Trimmed, with runs of spaces squeezed to one: what is sent and printed. */
-export const cleanName = (s: string) => s.trim().replace(/\s+/g, ' ')
-
-/** FR-P1 field rules; returns an error per field (empty object = valid). */
-export function checkoutErrors(c: Checkout, billNoRequired = false): Partial<Record<keyof Checkout, string>> {
-  const e: Partial<Record<keyof Checkout, string>> = {}
-  if (!c.business_name.trim()) e.business_name = 'Enter the business name'
-  if (!c.address.trim()) e.address = 'Enter the address'
-  if (!PHONE.test(c.phone.trim())) e.phone = '7–20 digits, spaces, + or -'
-  if (billNoRequired && !c.bill_no) e.bill_no = 'Enter the Bill No'
-  else if (c.bill_no && !/^[1-9]\d{0,6}$/.test(c.bill_no)) e.bill_no = 'Whole number from 1'
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(c.invoice_date)) e.invoice_date = 'Pick a date'
-  if (c.saving_amount && toPaise(c.saving_amount) === null) e.saving_amount = 'Amount, up to 2 decimals'
-  const name = cleanName(c.salesperson ?? '')
-  if (!name) e.salesperson = 'Enter the salesperson name'
-  else if (name.length > SALESPERSON_MAX) e.salesperson = `At most ${SALESPERSON_MAX} characters`
-  return e
+export interface CheckoutSettings extends MoneySettings {
+  gstDefaults: GstFieldDefaults
+  hsnCodes: Record<string, string>
+  stateCode: string
 }
 
+type TextKey = { [K in keyof Checkout]: Checkout[K] extends string | null ? K : never }[keyof Checkout]
+
 interface FieldProps {
-  id: keyof Checkout
+  id: TextKey
   label: string
   max?: number
   optional?: boolean
@@ -38,14 +25,15 @@ interface FieldProps {
   inputMode?: 'numeric' | 'decimal' | 'tel' | 'text'
   type?: string
   autoComplete?: string
-  /** Also show the error once the field has been left, even if empty. */
-  errorOnBlur?: boolean
+  /** Shown while the field is untouched (null): the config default. */
+  fallback?: string
+  upper?: boolean
 }
 
-function Field({ id, label, max, optional, error, showError, inputMode, type, autoComplete, errorOnBlur }: FieldProps) {
+function Field({ id, label, max, optional, error, showError, inputMode, type, autoComplete, fallback, upper }: FieldProps) {
   const { checkout, dispatch } = useCart()
-  const [touched, setTouched] = useState(false)
-  const invalid = (showError || (errorOnBlur && touched)) && !!error
+  const invalid = showError && !!error
+  const value = withDefault(checkout[id] as string | null, fallback)
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={`checkout-${id}`} className="text-sm font-semibold text-ink-soft">
@@ -53,14 +41,13 @@ function Field({ id, label, max, optional, error, showError, inputMode, type, au
       </label>
       <input
         id={`checkout-${id}`}
-        className="field"
+        className={`field${upper ? ' uppercase' : ''}`}
         type={type ?? 'text'}
         maxLength={max}
         inputMode={inputMode}
         autoComplete={autoComplete ?? 'off'}
-        value={checkout[id]}
+        value={value}
         onChange={(e) => dispatch({ type: 'checkout', patch: { [id]: e.target.value } })}
-        onBlur={() => setTouched(true)}
         aria-invalid={invalid ? 'true' : undefined}
         aria-describedby={invalid ? `checkout-${id}-error` : undefined}
       />
@@ -73,142 +60,220 @@ function Field({ id, label, max, optional, error, showError, inputMode, type, au
   )
 }
 
+const BILL_TYPES: [BillType, string][] = [
+  ['non_gst', 'Non-GST invoice'],
+  ['gst', 'GST invoice'],
+]
+
 export function CheckoutForm({
   settings,
+  errors,
   showErrors,
   billNoRequired,
-  flagSalesperson = false,
+  quoteNoRequired,
+  onBillType,
 }: {
-  settings: MoneySettings
+  settings: CheckoutSettings
+  errors: CheckoutErrors
   showErrors: boolean
   billNoRequired: boolean
-  /** Show the salesperson error before the field is touched (everything else is ready). */
-  flagSalesperson?: boolean
+  /** Without storage the quotation number is typed too (it counts up on this device). */
+  quoteNoRequired: boolean
+  onBillType: (next: BillType) => void
 }) {
   const { checkout, lines, dispatch } = useCart()
-  const errors = checkoutErrors(checkout, billNoRequired)
-  const withGst = checkout.billing_type === 'with_gst'
-  const gst = chosenGst(checkout.billing_type, checkout.gst_option, settings.gstOptions)
-  const m = invoiceMoney(lines, gst?.components ?? [], settings)
+  const gst = checkout.billing_type === 'gst'
+  const slab = chosenSlab(checkout.billing_type, checkout.gst_slab, settings.slabGroups)
+  const m = invoiceMoney(lines, slab?.components ?? [], settings)
   const suggested = suggestedSaving(lines)
   const advancePct = settings.advancePct
+  const warnings = gstWarnings(checkout, slab, lines, settings.hsnCodes, settings.stateCode)
   const f = (key: keyof Checkout) => ({ error: errors[key], showError: showErrors || !!checkout[key] })
+  const patch = (p: Partial<Checkout>) => dispatch({ type: 'checkout', patch: p })
 
   return (
     <section aria-labelledby="checkout-title" className="flex flex-col gap-4 rounded-md bg-stock p-4 shadow-sm ring-1 ring-rule">
-      <h2 id="checkout-title" className="type-expanded text-lg font-bold">
-        Ship To
-      </h2>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field id="business_name" label="Business name" max={60} autoComplete="organization" {...f('business_name')} />
-        <Field id="contact_person" label="Contact person" max={60} optional autoComplete="name" {...f('contact_person')} />
-        <div className="sm:col-span-2">
-          <Field id="address" label="Address" max={140} autoComplete="street-address" {...f('address')} />
-        </div>
-        <Field id="phone" label="Phone" max={20} inputMode="tel" type="tel" autoComplete="tel" {...f('phone')} />
-      </div>
-
-      <h2 className="type-expanded mt-2 text-lg font-bold">Invoice</h2>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1">
-          <Field id="bill_no" label="Bill No" inputMode="numeric" {...f('bill_no')} />
-          {billNoRequired ? (
-            <p className="text-xs text-ink-soft">Goes up by one after each print on this device.</p>
-          ) : (
-            !checkout.bill_no && <p className="text-xs text-ink-soft">Blank: the next number is assigned on print.</p>
-          )}
-        </div>
-        <Field id="invoice_date" label="Invoice date" type="date" {...f('invoice_date')} />
-        <div className="col-span-2">
-          <Field
-            id="salesperson"
-            label="Salesperson Name"
-            max={SALESPERSON_MAX}
-            autoComplete="name"
-            errorOnBlur
-            {...f('salesperson')}
-            showError={showErrors || flagSalesperson || !!checkout.salesperson}
-          />
-        </div>
-      </div>
       <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
-        <legend className="mb-1.5 text-sm font-semibold text-ink-soft">Billing type</legend>
-        {(
-          [
-            ['without_gst', 'Without GST billing'],
-            ['with_gst', 'With GST billing'],
-          ] as const
-        ).map(([value, label]) => (
+        <legend className="mb-1.5 text-sm font-semibold text-ink-soft">Bill type</legend>
+        {BILL_TYPES.map(([value, label]) => (
           <label key={value} className="flex items-center gap-2">
             <input
               type="radio"
               name="billing_type"
               className="accent-cyan"
               checked={checkout.billing_type === value}
-              onChange={() => dispatch({ type: 'checkout', patch: { billing_type: value } })}
+              onChange={() => onBillType(value)}
             />
             {label}
           </label>
         ))}
+        {!checkout.billing_type && <p className="w-full text-xs text-ink-soft">Choose one to print an invoice. A quotation doesn't need it.</p>}
       </fieldset>
-      {withGst && (
-        <div className="flex flex-col gap-1 sm:max-w-xs">
-          <label htmlFor="checkout-gst_option" className="text-sm font-semibold text-ink-soft">
-            GST Rate
+
+      {gst && (
+        <div className="flex flex-col gap-1 sm:max-w-sm">
+          <label htmlFor="checkout-gst_slab" className="text-sm font-semibold text-ink-soft">
+            GST slab
           </label>
           <select
-            id="checkout-gst_option"
+            id="checkout-gst_slab"
             className="field"
             required
-            value={gst ? gst.key : ''}
-            onChange={(e) => dispatch({ type: 'checkout', patch: { gst_option: e.target.value } })}
-            aria-describedby={gst ? undefined : 'checkout-gst_option-hint'}
+            value={slab ? slab.key : ''}
+            onChange={(e) => patch({ gst_slab: e.target.value })}
+            aria-describedby={slab ? undefined : 'checkout-gst_slab-hint'}
           >
             <option value="" disabled>
-              Select GST rate
+              {SLAB_PLACEHOLDER}
             </option>
-            {settings.gstOptions.map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-              </option>
+            {settings.slabGroups.map((g) => (
+              <optgroup key={g.key} label={g.label}>
+                {g.slabs.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
-          {!gst && (
-            <p id="checkout-gst_option-hint" className="text-xs text-ink-soft">
-              {settings.gstOptions.length ? GST_HINT : "GST rates couldn't be loaded. Reload the page."}
+          {!slab && (
+            <p id="checkout-gst_slab-hint" className="text-xs text-ink-soft">
+              {settings.slabGroups.length ? 'Required for a GST invoice.' : "GST slabs couldn't be loaded. Reload the page."}
             </p>
           )}
         </div>
       )}
+
+      <h2 id="checkout-title" className="type-expanded mt-2 text-lg font-bold">
+        {gst ? 'Buyer Info (Billed to)' : 'Ship To'}
+      </h2>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field id="business_name" label={gst ? 'Buyer name' : 'Business name'} max={60} autoComplete="organization" {...f('business_name')} />
+        {gst ? (
+          <Field id="buyer_gstin" label="Buyer GSTIN" max={15} optional upper {...f('buyer_gstin')} />
+        ) : (
+          <Field id="contact_person" label="Contact person" max={60} optional autoComplete="name" {...f('contact_person')} />
+        )}
+        <div className="sm:col-span-2">
+          <Field id="address" label="Address" max={140} optional={gst} autoComplete="street-address" {...f('address')} />
+        </div>
+        <Field id="phone" label="Phone" max={20} optional={gst} inputMode="tel" type="tel" autoComplete="tel" {...f('phone')} />
+      </div>
+      {!checkout.billing_type && <p className="-mt-2 text-xs text-ink-soft">Optional on a quotation.</p>}
+
+      {gst && (
+        <>
+          <h2 className="type-expanded mt-2 text-lg font-bold">Consignee Info (Shipped to)</h2>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              className="accent-cyan"
+              checked={checkout.consignee_same}
+              onChange={(e) => patch({ consignee_same: e.target.checked })}
+            />
+            Same as buyer
+          </label>
+          {!checkout.consignee_same && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field id="consignee_name" label="Consignee name" max={60} {...f('consignee_name')} />
+              <Field id="consignee_gstin" label="Consignee GSTIN" max={15} optional upper {...f('consignee_gstin')} />
+              <div className="sm:col-span-2">
+                <Field id="consignee_address" label="Consignee address" max={140} optional {...f('consignee_address')} />
+              </div>
+              <Field id="consignee_phone" label="Consignee phone" max={20} optional inputMode="tel" type="tel" {...f('consignee_phone')} />
+            </div>
+          )}
+
+          <h2 className="type-expanded mt-2 text-lg font-bold">Delivery and transport</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field id="delivery_terms" label="Delivery Terms" max={60} optional {...f('delivery_terms')} />
+            <Field id="payment_terms" label="Payment Terms" max={40} optional fallback={settings.gstDefaults.payment_terms} {...f('payment_terms')} />
+            <Field id="po_date" label="P.O Date" type="date" optional {...f('po_date')} />
+            <Field id="gr_rr_no" label="GR/RR No" max={30} optional {...f('gr_rr_no')} />
+            <Field id="transport" label="Transport" max={40} optional fallback={settings.gstDefaults.transport} {...f('transport')} />
+            <Field id="vehicle_no" label="Vehicle no." max={20} optional {...f('vehicle_no')} />
+            <Field id="eway_bill_no" label="E-Way Bill No." max={20} optional {...f('eway_bill_no')} />
+            <Field id="station" label="Station" max={40} optional fallback={settings.gstDefaults.station} {...f('station')} />
+          </div>
+          <p className="-mt-2 text-xs text-ink-soft">Blank fields print blank.</p>
+
+          <h2 className="type-expanded mt-2 text-lg font-bold">HSN codes</h2>
+          <ul className="flex flex-col gap-2">
+            {lines.map((line, i) => (
+              <li key={line.id} className="flex flex-wrap items-center justify-between gap-2">
+                <label htmlFor={`hsn-${line.id}`} className="min-w-0 flex-1 truncate text-sm">
+                  {i + 1}. {line.title}
+                </label>
+                <input
+                  id={`hsn-${line.id}`}
+                  className="field w-32"
+                  inputMode="numeric"
+                  maxLength={12}
+                  aria-label={`HSN code for ${line.title}`}
+                  value={lineHsn(line, lines, settings.hsnCodes)}
+                  onChange={(e) =>
+                    dispatch({ type: 'update', id: line.id, patch: { hsn_code: e.target.value.replace(/[^0-9A-Za-z ]/g, '') } })
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {warnings.length > 0 && (
+        <ul role="status" aria-label="GST invoice warnings" className="flex flex-col gap-1 rounded-md bg-warn-wash px-3 py-2 text-sm text-warn">
+          {warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      )}
+
+      <h2 className="type-expanded mt-2 text-lg font-bold">Numbers and date</h2>
+      <div className="grid grid-cols-2 gap-3">
+        {checkout.billing_type && (
+          <div className="flex flex-col gap-1">
+            <Field id="bill_no" label="Bill No" inputMode="numeric" {...f('bill_no')} />
+            {billNoRequired ? (
+              <p className="text-xs text-ink-soft">Goes up by one after each print on this device.</p>
+            ) : (
+              !checkout.bill_no && <p className="text-xs text-ink-soft">Blank: the next number is assigned on print.</p>
+            )}
+          </div>
+        )}
+        {quoteNoRequired && <Field id="quote_no" label="Quote No" inputMode="numeric" {...f('quote_no')} />}
+        <Field id="invoice_date" label="Date" type="date" {...f('invoice_date')} />
+      </div>
+
       <div className="flex flex-col gap-1">
         <Field id="saving_amount" label="Saving amount (₹)" optional inputMode="decimal" {...f('saving_amount')} />
         {suggested > 0n && (
           <button
             type="button"
             className="self-start text-sm text-cyan-deep underline"
-            onClick={() => dispatch({ type: 'checkout', patch: { saving_amount: fromPaise(suggested).replace(/\.00$/, '') } })}
+            onClick={() => patch({ saving_amount: fromPaise(suggested).replace(/\.00$/, '') })}
           >
             Use suggested ({money(fromPaise(suggested))})
           </button>
         )}
-        <p className="text-xs text-ink-soft">Blank or 0 hides the saving block on the invoice.</p>
+        <p className="text-xs text-ink-soft">Blank or 0 hides the saving block (quotations and Non-GST invoices).</p>
       </div>
 
       <dl className="flex flex-col gap-1.5 rounded-md bg-sheet p-3" aria-label="Invoice summary">
         <div className="flex justify-between">
-          <dt>Total</dt>
+          <dt>{gst ? 'Sub-total' : 'Total'}</dt>
           <dd>{money(fromPaise(m.total))}</dd>
         </div>
         {m.taxes.map((t) => (
           <div key={t.name} className="flex justify-between">
             <dt>
-              {t.name} @ {t.rate}%
+              {t.name} ({t.rate}%)
             </dt>
             <dd>{money(fromPaise(t.amount))}</dd>
           </div>
         ))}
         <div className="flex justify-between font-semibold">
-          <dt>Payable</dt>
+          <dt>{gst ? 'Total (after tax)' : 'Payable'}</dt>
           <dd data-testid="payable">{money(fromPaise(m.payable))}</dd>
         </div>
         <div className="flex justify-between text-sm text-ink-soft">

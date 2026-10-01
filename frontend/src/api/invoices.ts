@@ -8,6 +8,7 @@ import type {
   InvoiceStatus,
   NextBillNo,
   PaymentInput,
+  Series,
 } from './invoiceTypes'
 import type { ApiErrorBody } from './types'
 import { filenameFromDisposition } from '../lib/download'
@@ -71,8 +72,9 @@ async function pdf(path: string, init?: RequestInit): Promise<InvoicePdf> {
   const response = await send(path, init)
   const billNo = Number(response.headers.get('X-Bill-No'))
   const status = (response.headers.get('X-Invoice-Status') ?? 'unpaid') as InvoiceStatus
+  const series = (response.headers.get('X-Document-Series') ?? 'non_gst') as Series
   const filename = filenameFromDisposition(response.headers.get('Content-Disposition'), `Invoice_${billNo}.pdf`)
-  return { blob: await response.blob(), filename, billNo, status }
+  return { blob: await response.blob(), filename, billNo, status, series }
 }
 
 export async function staffLogin(passcode: string): Promise<string> {
@@ -91,17 +93,22 @@ export const fetchNextBillNo = () => json<NextBillNo>('/api/invoices/next-bill-n
 export const createInvoice = (body: InvoiceCreate) =>
   pdf('/api/invoices', { method: 'POST', body: JSON.stringify(body) })
 
-export function listInvoices(params: { q?: string; limit?: number; offset?: number }): Promise<InvoiceList> {
+export function listInvoices(params: { q?: string; limit?: number; offset?: number; series?: Series }): Promise<InvoiceList> {
   const search = new URLSearchParams()
+  if (params.series && params.series !== 'non_gst') search.set('series', params.series)
   if (params.q) search.set('q', params.q)
   search.set('limit', String(params.limit ?? 25))
   search.set('offset', String(params.offset ?? 0))
   return json<InvoiceList>(`/api/invoices?${search}`)
 }
 
-export const downloadInvoice = (billNo: number) => pdf(`/api/invoices/${billNo}/pdf`)
+/** `?series=` for quotations and GST invoices; Non-GST invoices keep their old URLs. */
+const seriesQuery = (series: Series = 'non_gst') => (series === 'non_gst' ? '' : `?series=${series}`)
 
-export const deleteInvoice = (billNo: number) => json<{ deleted: number }>(`/api/invoices/${billNo}`, { method: 'DELETE' })
+export const downloadInvoice = (billNo: number, series?: Series) => pdf(`/api/invoices/${billNo}/pdf${seriesQuery(series)}`)
 
-export const addPayment =(billNo: number, payment: PaymentInput) =>
-  pdf(`/api/invoices/${billNo}/payments`, { method: 'POST', body: JSON.stringify(payment) })
+export const deleteInvoice = (billNo: number, series?: Series) =>
+  json<{ deleted: number }>(`/api/invoices/${billNo}${seriesQuery(series)}`, { method: 'DELETE' })
+
+export const addPayment = (billNo: number, payment: PaymentInput, series?: Series) =>
+  pdf(`/api/invoices/${billNo}/payments${seriesQuery(series)}`, { method: 'POST', body: JSON.stringify(payment) })

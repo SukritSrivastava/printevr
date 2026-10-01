@@ -4,7 +4,7 @@
  *
  * All sums are done in integer paise with BigInt. Money is never a float.
  */
-import type { GstComponent, GstOption } from '../api/invoiceTypes'
+import type { GstComponent, GstSlab, GstSlabGroup } from '../api/invoiceTypes'
 
 /** "88.5" -> 8850n (paise). Accepts up to 2 decimals; anything else parses as null. */
 export function toPaise(value: string | number | null | undefined): bigint | null {
@@ -63,19 +63,20 @@ export interface InvoiceMoney {
 }
 
 export interface MoneySettings {
-  gstOptions: GstOption[] // from the server; empty until loaded
+  slabGroups: GstSlabGroup[] // from the server; empty until loaded
   advancePct: string // "80"
 }
 
-export const DEFAULT_MONEY_SETTINGS: MoneySettings = { gstOptions: [], advancePct: '80' }
+export const DEFAULT_MONEY_SETTINGS: MoneySettings = { slabGroups: [], advancePct: '80' }
 
-/** The GST option picked for With GST billing, or undefined (without GST, or none picked yet). */
-export function chosenGst(billing: string, key: string, options: GstOption[]): GstOption | undefined {
-  return billing === 'with_gst' ? options.find((o) => o.key === key) : undefined
+/** The GST slab picked for a GST invoice, or undefined (another bill type, or none picked yet). */
+export function chosenSlab(billType: string, key: string, groups: GstSlabGroup[]): GstSlab | undefined {
+  if (billType !== 'gst') return undefined
+  return groups.flatMap((g) => g.slabs).find((s) => s.key === key)
 }
 
 /**
- * `gst` is the chosen option's components (empty = no GST). Each is charged on the total and
+ * `gst` is the chosen slab's components (empty = no tax). Each is charged on the total and
  * rounded half up to paise on its own, exactly like the server (backend/app/invoice/gst.py).
  */
 export function invoiceMoney(

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, NetworkError, calculate } from '../api/client'
 import { createInvoice, fetchNextBillNo, staffToken } from '../api/invoices'
-import type { CartLine, ChangedLine, InvoiceCreate, InvoiceSettings, PaymentInput } from '../api/invoiceTypes'
+import type { BillType, CartLine, ChangedLine, InvoiceSettings, PaymentInput, Series } from '../api/invoiceTypes'
 import { useCart } from '../cart/CartProvider'
+import { checkoutErrors, documentRequest, printMissing, quotationMissing } from '../lib/documents'
 import { saveBlob } from '../lib/download'
-import { DEFAULT_MONEY_SETTINGS, chosenGst, invoiceMoney, toPaise, type MoneySettings } from '../lib/invoiceMoney'
+import { DEFAULT_MONEY_SETTINGS, chosenSlab, invoiceMoney } from '../lib/invoiceMoney'
 import { CartLineCard } from './CartLineCard'
-import { CheckoutForm, GST_HINT, SALESPERSON_HINT, checkoutErrors, cleanName } from './CheckoutForm'
+import { CheckoutForm, type CheckoutSettings } from './CheckoutForm'
 import { PaymentDialog } from './PaymentDialog'
 import { StaffCancelled, useStaff } from './StaffLoginDialog'
 import { useToast } from './Toast'
@@ -46,15 +47,21 @@ async function freshPrices(lines: CartLine[]): Promise<ChangedLine[]> {
   return results.filter((r): r is ChangedLine => r !== null)
 }
 
-export const lineReady = (l: CartLine) =>
-  (toPaise(l.unit_price) ?? 0n) > 0n &&
-  !!l.title.trim() &&
-  Number(l.quantity) >= 1 &&
-  [...l.specs, ...l.customisations].every((s) => s.value.trim()) &&
-  (l.middle.kind !== 'note' || !!l.middle.text.trim()) &&
-  (l.middle.kind !== 'reference_price' || (toPaise(l.middle.amount) ?? 0n) > 0n)
-
 type Problem = { message: string; retry?: () => void }
+type Kind = 'quotation' | 'unpaid' | 'paid'
+
+const DOCUMENT_NAMES: Record<Series, string> = { quotation: 'Quotation', non_gst: 'Invoice', gst: 'GST invoice' }
+
+function settingsFrom(s: InvoiceSettings | undefined): CheckoutSettings {
+  return {
+    ...DEFAULT_MONEY_SETTINGS,
+    ...(s?.gst_slab_groups ? { slabGroups: s.gst_slab_groups } : {}),
+    ...(s?.advance_pct ? { advancePct: s.advance_pct } : {}),
+    gstDefaults: s?.gst_field_defaults ?? {},
+    hsnCodes: s?.hsn_codes ?? {},
+    stateCode: s?.seller_state_code ?? '',
+  }
+}
 
 export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () => void; invoiceSettings?: InvoiceSettings }) {
   const { lines, checkout, dispatch, openCustomItem } = useCart()
@@ -62,18 +69,19 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
   const toast = useToast()
   const [stale, setStale] = useState(false)
   const [changed, setChanged] = useState<Set<string>>(new Set())
-  const [settings, setSettings] = useState<MoneySettings>(DEFAULT_MONEY_SETTINGS)
-  // Without storage the server can't count bill numbers: the Bill No is typed (and remembered here).
+  const [settings, setSettings] = useState<CheckoutSettings>(() => settingsFrom(invoiceSettings))
+  // Without storage the server can't count numbers: the Bill No (and Quote No) are typed and
+  // remembered here.
   const storage = invoiceSettings?.storage ?? true
   useEffect(() => {
-    if (invoiceSettings?.gst_options && invoiceSettings.advance_pct) {
-      setSettings({ gstOptions: invoiceSettings.gst_options, advancePct: invoiceSettings.advance_pct })
-    }
+    if (invoiceSettings) setSettings(settingsFrom(invoiceSettings))
   }, [invoiceSettings])
+  // Each series' next number, once staff are signed in (storage only).
+  const [next, setNext] = useState<Record<Series, number> | null>(null)
   const [busy, setBusy] = useState(false)
   const [paying, setPaying] = useState(false)
   const [problem, setProblem] = useState<Problem | null>(null)
-  const [printed, setPrinted] = useState<number | null>(null)
+  const [printed, setPrinted] = useState<{ series: Series; no: number } | null>(null)
   const busyRef = useRef(false)
 
   const applyChanges = useCallback(
@@ -86,10 +94,11 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
     [dispatch],
   )
 
-  const refreshBillNo = useCallback(async () => {
-    const next = await fetchNextBillNo()
-    setSettings({ gstOptions: next.gst_options, advancePct: next.advance_pct })
-    return next.next_bill_no
+  const refreshNumbers = useCallback(async () => {
+    const n = await fetchNextBillNo()
+    setNext(n.next)
+    setSettings((s) => ({ ...s, slabGroups: n.gst_slab_groups, advancePct: n.advance_pct }))
+    return n.next
   }, [])
 
   // On open: re-quote every catalogue line once, and pre-fill the bill number if staff are signed in.
@@ -99,70 +108,67 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
     opened.current = true
     freshPrices(lines).then(applyChanges)
     if (storage && (staffToken() || invoiceSettings?.staff_passcode === false)) {
-      refreshBillNo()
+      refreshNumbers()
         .then((n) => {
-          if (!checkout.bill_no) dispatch({ type: 'checkout', patch: { bill_no: String(n) } })
+          if (!checkout.bill_no && checkout.billing_type) dispatch({ type: 'checkout', patch: { bill_no: String(n[checkout.billing_type]) } })
         })
         .catch(() => {})
     }
-  }, [lines, checkout.bill_no, applyChanges, refreshBillNo, dispatch, storage, invoiceSettings?.staff_passcode])
+  }, [lines, checkout.bill_no, checkout.billing_type, applyChanges, refreshNumbers, dispatch, storage, invoiceSettings?.staff_passcode])
 
-  const gst = chosenGst(checkout.billing_type, checkout.gst_option, settings.gstOptions)
-  const needsGst = checkout.billing_type === 'with_gst' && !gst
-  const m = invoiceMoney(lines, gst?.components ?? [], settings)
-  const formErrors = checkoutErrors(checkout, !storage)
-  const formOk = Object.keys(formErrors).length === 0
-  const ready = lines.length > 0 && lines.every(lineReady) && formOk && !needsGst
-  // Everything but the salesperson is filled in: say so next to the field and under the buttons.
-  const { salesperson: nameError, ...otherErrors } = formErrors
-  const onlyName = !!nameError && Object.keys(otherErrors).length === 0 && lines.length > 0 && lines.every(lineReady) && !needsGst
+  /** Switching bill type moves a pre-filled Bill No to the new series; a typed one stays. */
+  const chooseBillType = (type: BillType) => {
+    const previous = checkout.billing_type
+    const suggested = !checkout.bill_no || (!!previous && !!next && checkout.bill_no === String(next[previous]))
+    const bill_no = storage && suggested ? (next ? String(next[type]) : '') : checkout.bill_no
+    dispatch({ type: 'checkout', patch: { billing_type: type, bill_no } })
+  }
 
-  const print = async (mode: 'unpaid' | 'paid', payments: PaymentInput[] = []) => {
+  const slab = chosenSlab(checkout.billing_type, checkout.gst_slab, settings.slabGroups)
+  const m = invoiceMoney(lines, slab?.components ?? [], settings)
+  const formErrors = checkoutErrors(checkout, { billNoRequired: !storage, quoteNoRequired: !storage })
+  const quoteMissing = quotationMissing(lines, formErrors)
+  const missing = printMissing(checkout, lines, formErrors, slab)
+  const ready = missing.length === 0
+  const quoteReady = quoteMissing.length === 0
+
+  const print = async (kind: Kind, payments: PaymentInput[] = []) => {
     if (busyRef.current) return
     busyRef.current = true
     setBusy(true)
     setProblem(null)
-    const body: InvoiceCreate = {
-      bill_no: checkout.bill_no ? Number(checkout.bill_no) : null,
-      invoice_date: checkout.invoice_date,
-      billing_type: checkout.billing_type,
-      gst_option: gst ? gst.key : null,
-      customer: {
-        business_name: checkout.business_name.trim(),
-        contact_person: checkout.contact_person.trim(),
-        address: checkout.address.trim(),
-        phone: checkout.phone.trim(),
-      },
-      lines,
-      payments,
-      saving_amount: checkout.saving_amount && toPaise(checkout.saving_amount) ? checkout.saving_amount : null,
-      print_mode: mode,
-      salesperson: cleanName(checkout.salesperson),
-    }
+    const body = documentRequest(kind, checkout, lines, { storage, slab, defaults: settings.gstDefaults, hsnCodes: settings.hsnCodes }, payments)
+    const quotation = kind === 'quotation'
     try {
       const pdf = await withStaff(() => createInvoice(body))
       saveBlob(pdf.blob, pdf.filename)
       setPaying(false)
-      setPrinted(pdf.billNo)
+      setPrinted({ series: pdf.series, no: pdf.billNo })
       setStale(false)
       setChanged(new Set())
-      toast(`Invoice ${pdf.billNo} downloaded`)
-      if (storage) {
-        refreshBillNo()
-          .then((n) => dispatch({ type: 'checkout', patch: { bill_no: String(n) } }))
-          .catch(() => dispatch({ type: 'checkout', patch: { bill_no: String(pdf.billNo + 1) } }))
+      toast(`${DOCUMENT_NAMES[pdf.series]} ${pdf.billNo} downloaded`)
+      if (!storage) {
+        dispatch({ type: 'checkout', patch: quotation ? { quote_no: String(pdf.billNo + 1) } : { bill_no: String(pdf.billNo + 1) } })
       } else {
-        dispatch({ type: 'checkout', patch: { bill_no: String(pdf.billNo + 1) } })
+        const type = checkout.billing_type
+        refreshNumbers()
+          .then((n) => {
+            if (!quotation && type) dispatch({ type: 'checkout', patch: { bill_no: String(n[type]) } })
+          })
+          .catch(() => {
+            if (!quotation) dispatch({ type: 'checkout', patch: { bill_no: String(pdf.billNo + 1) } })
+          })
       }
     } catch (err) {
       if (err instanceof StaffCancelled) {
         // nothing: they closed the passcode dialog
       } else if (err instanceof NetworkError) {
-        setProblem({ message: "Can't reach the server. Nothing was saved.", retry: () => print(mode, payments) })
+        setProblem({ message: "Can't reach the server. Nothing was saved.", retry: () => print(kind, payments) })
       } else if (err instanceof ApiError && err.code === 'BILL_NO_TAKEN') {
-        const next = Number(err.details.next_bill_no)
-        dispatch({ type: 'checkout', patch: { bill_no: String(next) } })
-        setProblem({ message: `Bill No ${body.bill_no} is already used. Changed to ${next}; press Print again.` })
+        const free = Number(err.details.next_bill_no)
+        const field = quotation ? 'quote_no' : 'bill_no'
+        dispatch({ type: 'checkout', patch: { [field]: String(free) } })
+        setProblem({ message: `${quotation ? 'Quote' : 'Bill'} No ${body.bill_no} is already used. Changed to ${free}; press the button again.` })
       } else if (err instanceof ApiError && err.code === 'PRICES_CHANGED') {
         applyChanges((err.details.lines as ChangedLine[]) ?? [])
         setProblem({ message: STALE })
@@ -214,7 +220,10 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
       {printed !== null && (
         <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-save-wash px-4 py-3 text-save">
           <p>
-            <strong className="font-semibold">Invoice {printed} downloaded.</strong> The cart is kept so you can reprint.
+            <strong className="font-semibold">
+              {DOCUMENT_NAMES[printed.series]} {printed.no} downloaded.
+            </strong>{' '}
+            The cart is kept so you can print again.
           </p>
           <button
             type="button"
@@ -241,7 +250,14 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
         </p>
       )}
 
-      <CheckoutForm settings={settings} showErrors={false} billNoRequired={!storage} flagSalesperson={onlyName} />
+      <CheckoutForm
+        settings={settings}
+        errors={formErrors}
+        showErrors={false}
+        billNoRequired={!storage}
+        quoteNoRequired={!storage}
+        onBillType={chooseBillType}
+      />
 
       <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t border-rule bg-sheet/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:-mx-6 sm:px-6">
         {problem && (
@@ -254,18 +270,20 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
             )}
           </div>
         )}
-        <div className="grid gap-2 sm:grid-cols-2">
-          <PrintButton label="Print (Unpaid as of now)" busy={busy} disabled={!ready} onClick={() => print('unpaid')} />
-          <PrintButton label="Print (Paid)" busy={busy} disabled={!ready} onClick={() => setPaying(true)} />
+        <div className="grid gap-2 sm:grid-cols-3">
+          <PrintButton label="Quotation" busy={busy} disabled={!quoteReady} hint="quotation-hint" onClick={() => print('quotation')} />
+          <PrintButton label="Print (Unpaid as of now)" busy={busy} disabled={!ready} hint="print-hint" onClick={() => print('unpaid')} />
+          <PrintButton label="Print (Paid)" busy={busy} disabled={!ready} hint="print-hint" onClick={() => setPaying(true)} />
         </div>
-        <p className="text-center text-xs text-ink-soft">
+        {!quoteReady && (
+          <p id="quotation-hint" className="text-center text-xs text-ink-soft">
+            Quotation: {quoteMissing.join(', ')}.
+          </p>
+        )}
+        <p id="print-hint" className="text-center text-xs text-ink-soft">
           {ready
-            ? 'Downloads the invoice PDF.'
-            : onlyName
-              ? `${SALESPERSON_HINT}.`
-              : needsGst && lines.every(lineReady) && formOk
-                ? `${GST_HINT}.`
-                : `Downloads the invoice PDF. Fill in Ship To${storage ? '' : ', Bill No'}, Salesperson Name${needsGst ? ', pick a GST rate' : ''} and give every line a price first.`}
+            ? `Print downloads the ${checkout.billing_type === 'gst' ? 'GST invoice' : 'Non-GST invoice'} PDF.`
+            : `Print: ${missing.join(', ')}.`}
         </p>
       </div>
 
@@ -285,13 +303,27 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
   )
 }
 
-function PrintButton({ label, busy, disabled, onClick }: { label: string; busy: boolean; disabled: boolean; onClick: () => void }) {
+function PrintButton({
+  label,
+  busy,
+  disabled,
+  hint,
+  onClick,
+}: {
+  label: string
+  busy: boolean
+  disabled: boolean
+  /** id of the line saying what's missing */
+  hint: string
+  onClick: () => void
+}) {
   return (
     <button
       type="button"
       className="flex w-full items-center justify-center gap-2 rounded-md bg-ink px-4 py-3 font-semibold text-stock disabled:opacity-45"
       disabled={disabled || busy}
       aria-busy={busy}
+      aria-describedby={disabled ? hint : undefined}
       onClick={onClick}
     >
       {busy && <span className="size-4 animate-spin rounded-full border-2 border-stock border-t-transparent" aria-hidden="true" />}

@@ -27,6 +27,8 @@ export interface InvoiceLineDraft {
   catalogue_unit_price: string | null
   unit_price: string
   warnings: QuoteWarning[]
+  /** GST invoices: typed in the cart; undefined = the product's code from config/products.yaml. */
+  hsn_code?: string
 }
 
 export interface CartLine extends InvoiceLineDraft {
@@ -35,17 +37,51 @@ export interface CartLine extends InvoiceLineDraft {
   calc_request: CalculateRequest | null
 }
 
-export type InvoiceBilling = 'without_gst' | 'with_gst'
+/** The invoice's bill type: the Printevr invoice, or the BASTTA GST invoice. */
+export type BillType = 'non_gst' | 'gst'
+
+/** Each numbered on its own. */
+export type Series = 'quotation' | 'non_gst' | 'gst'
 
 /**
- * A GST rate for With GST billing. Defined once, in config/invoice.yaml (gst_options); the
- * cart gets the list from GET /api/invoice-settings and sends back only the key.
+ * A GST slab for GST invoices. Defined once, in config/invoice.yaml (gst_slabs); the cart gets
+ * them from GET /api/invoice-settings, grouped for the dropdown, and sends back only the key.
  */
-export interface GstOption {
-  key: string // "gst_18"
-  label: string // "18% GST"
-  components: GstComponent[]
+export interface GstSlab {
+  key: string // "intra_18"
+  label: string // "9% CGST + 9% SGST/UTGST (18%)"
+  components: GstComponent[] // always CGST, UGST, IGST
 }
+
+export interface GstSlabGroup {
+  key: string // "intra" | "inter"
+  label: string
+  slabs: GstSlab[]
+}
+
+export interface Party {
+  name: string
+  address: string
+  phone: string
+  gstin: string
+}
+
+/** A GST invoice's own fields. Blank text prints blank. */
+export interface GstDetails {
+  buyer: Party
+  consignee_same: boolean
+  consignee: Party | null
+  delivery_terms: string
+  payment_terms: string
+  po_date: string | null // YYYY-MM-DD
+  gr_rr_no: string
+  transport: string
+  vehicle_no: string
+  eway_bill_no: string
+  station: string
+}
+
+export type GstFieldDefaults = Partial<Record<'payment_terms' | 'transport' | 'station', string>>
 
 export interface GstComponent {
   name: string // "CGST"
@@ -68,37 +104,41 @@ export interface PaymentInput {
 }
 
 export interface InvoiceCreate {
+  document_type: 'quotation' | 'invoice'
+  /** Invoices only; null on a quotation. */
+  bill_type: BillType | null
+  /** A GstSlab key; GST invoices only (400 otherwise). */
+  gst_slab: string | null
+  gst: GstDetails | null
   bill_no: number | null
   invoice_date: string
-  billing_type: InvoiceBilling
-  /** A GstOption key; required with GST billing, null without. */
-  gst_option: string | null
   customer: Customer
   lines: CartLine[]
   payments: PaymentInput[]
   saving_amount: string | null
-  print_mode: 'unpaid' | 'paid'
-  /** Who generated the invoice: trimmed, 1-100 characters. Printed on the PDF and in the email. */
-  salesperson: string
+  /** Invoices only; a quotation has no payment state. */
+  print_mode: 'unpaid' | 'paid' | null
 }
 
-export type InvoiceStatus = 'unpaid' | 'part_paid' | 'paid'
+/** "issued": a quotation, which has no payment state. */
+export type InvoiceStatus = 'unpaid' | 'part_paid' | 'paid' | 'issued'
 
 export interface InvoiceSummary {
+  series: Series
   bill_no: number
   invoice_date: string
   business_name: string
-  billing_type: InvoiceBilling
+  billing_type: string
+  gst_slab: string | null
   total: string
   payable: string
   received: string
   status: InvoiceStatus
   version: number
-  /** null on invoices saved before the name was asked for */
-  salesperson?: string | null
 }
 
 export interface InvoiceList {
+  series: Series
   invoices: InvoiceSummary[]
   total: number
   limit: number
@@ -112,13 +152,20 @@ export interface InvoiceSettings {
   storage: boolean
   /** false: no separate staff passcode; the site password covers invoicing. */
   staff_passcode: boolean
-  gst_options: GstOption[]
+  gst_slab_groups: GstSlabGroup[]
+  /** A buyer GSTIN starting with this is intra-state ("04", Chandigarh). */
+  seller_state_code: string
+  gst_field_defaults: GstFieldDefaults
+  /** product id -> HSN code (blank until set in config/products.yaml) */
+  hsn_codes: Record<string, string>
   advance_pct: string | null
 }
 
 export interface NextBillNo {
+  /** The Non-GST invoice's next number (also in `next`). */
   next_bill_no: number
-  gst_options: GstOption[]
+  next: Record<Series, number>
+  gst_slab_groups: GstSlabGroup[]
   advance_pct: string
 }
 
@@ -135,4 +182,5 @@ export interface InvoicePdf {
   filename: string
   billNo: number
   status: InvoiceStatus
+  series: Series
 }

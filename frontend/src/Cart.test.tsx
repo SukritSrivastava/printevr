@@ -4,7 +4,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import type { CartLine, GstOption, InvoiceCreate, InvoiceLineDraft } from './api/invoiceTypes'
+import type { CartLine, GstSlabGroup, InvoiceCreate, InvoiceLineDraft } from './api/invoiceTypes'
 import type { CalculateRequest, QuoteResponse } from './api/types'
 import { STORAGE_KEY, todayIST } from './cart/CartProvider'
 import { fromPaise, invoiceMoney, lineSubtotal, suggestedSaving } from './lib/invoiceMoney'
@@ -53,7 +53,7 @@ interface Api {
 
 type InvoiceAnswer = (body: InvoiceCreate) => Response
 
-const pdfResponse = (billNo: number, status: string, name: string) =>
+const pdfResponse = (billNo: number, status: string, name: string, series = 'non_gst') =>
   new Response(new Blob(['%PDF-1.4 test'], { type: 'application/pdf' }), {
     status: 201,
     headers: {
@@ -61,27 +61,54 @@ const pdfResponse = (billNo: number, status: string, name: string) =>
       'Content-Disposition': `attachment; filename="${name}"`,
       'X-Bill-No': String(billNo),
       'X-Invoice-Status': status,
+      'X-Document-Series': series,
     },
   })
 
 // As GET /api/invoice-settings sends them from config/invoice.yaml.
-const GST_OPTIONS: GstOption[] = [
-  { key: 'gst_5', label: '5% GST', components: [{ name: 'GST', rate: '5' }] },
-  { key: 'gst_12', label: '12% GST', components: [{ name: 'GST', rate: '12' }] },
-  { key: 'gst_18', label: '18% GST', components: [{ name: 'GST', rate: '18' }] },
+const slab = (key: string, label: string, cgst: string, ugst: string, igst: string) => ({
+  key,
+  label,
+  components: [
+    { name: 'CGST', rate: cgst },
+    { name: 'UGST', rate: ugst },
+    { name: 'IGST', rate: igst },
+  ],
+})
+const SLAB_GROUPS: GstSlabGroup[] = [
   {
-    key: 'cgst_sgst_9_9',
-    label: '9% CGST + 9% SGST/UTGST',
-    components: [
-      { name: 'CGST', rate: '9' },
-      { name: 'SGST/UTGST', rate: '9' },
+    key: 'intra',
+    label: 'Intra-state (CGST + SGST/UTGST, IGST 0%)',
+    slabs: [
+      slab('intra_5', '2.5% CGST + 2.5% SGST/UTGST (5%)', '2.5', '2.5', '0'),
+      slab('intra_12', '6% CGST + 6% SGST/UTGST (12%)', '6', '6', '0'),
+      slab('intra_18', '9% CGST + 9% SGST/UTGST (18%)', '9', '9', '0'),
     ],
   },
+  {
+    key: 'inter',
+    label: 'Inter-state (IGST)',
+    slabs: [slab('inter_5', '5% IGST', '0', '0', '5'), slab('inter_12', '12% IGST', '0', '0', '12'), slab('inter_18', '18% IGST', '0', '0', '18')],
+  },
 ]
-const gstOf = (key: string) => GST_OPTIONS.find((o) => o.key === key)!.components
+const slabOf = (key: string) => SLAB_GROUPS.flatMap((g) => g.slabs).find((s) => s.key === key)!.components
 
 const settingsResponse = (storage: boolean, staffPasscode = true) =>
-  new Response(JSON.stringify({ enabled: true, storage, staff_passcode: staffPasscode, gst_options: GST_OPTIONS, advance_pct: '80' }))
+  new Response(
+    JSON.stringify({
+      enabled: true,
+      storage,
+      staff_passcode: staffPasscode,
+      gst_slab_groups: SLAB_GROUPS,
+      seller_state_code: '04',
+      gst_field_defaults: { payment_terms: 'Advance', transport: 'Self', station: 'Chandigarh' },
+      hsn_codes: { rigid_boxes: '' },
+      advance_pct: '80',
+    }),
+  )
+
+const NAMES: Record<string, string> = { quotation: 'Quotation', non_gst: 'Invoice', gst: 'GST_Invoice' }
+const seriesOf = (b: InvoiceCreate) => (b.document_type === 'quotation' ? 'quotation' : (b.bill_type ?? 'non_gst'))
 
 function mockApi(
   opts: { quote?: (b: CalculateRequest) => QuoteResponse; invoice?: InvoiceAnswer; storage?: boolean; staffPasscode?: boolean } = {},
@@ -103,12 +130,18 @@ function mockApi(
         return new Response(JSON.stringify({ token: '9999999999.sig', expires_at: '2026-10-01T00:00:00Z' }))
       }
       if (url.endsWith('/api/invoices/next-bill-no')) {
-        return new Response(JSON.stringify({ next_bill_no: 19 + api.invoices.length, gst_options: GST_OPTIONS, advance_pct: '80' }))
+        const count = (series: string) => api.invoices.filter((b) => seriesOf(b) === series).length
+        const next = { quotation: 1 + count('quotation'), non_gst: 19 + count('non_gst'), gst: 1 + count('gst') }
+        return new Response(JSON.stringify({ next_bill_no: next.non_gst, next, gst_slab_groups: SLAB_GROUPS, advance_pct: '80' }))
       }
       if (url.endsWith('/api/invoices') && init?.method === 'POST') {
         const body = JSON.parse(String(init.body)) as InvoiceCreate
+        const series = seriesOf(body)
+        const no = api.invoices.filter((b) => seriesOf(b) === series).length + (series === 'non_gst' ? 19 : 1)
         api.invoices.push(body)
-        return (opts.invoice ?? (() => pdfResponse(19, body.print_mode === 'paid' ? 'paid' : 'unpaid', 'Invoice_19_Sogat-Jutti-Store_Unpaid.pdf')))(body)
+        const status = series === 'quotation' ? 'issued' : body.print_mode === 'paid' ? 'paid' : 'unpaid'
+        const name = series === 'non_gst' && no === 19 ? 'Invoice_19_Sogat-Jutti-Store_Unpaid.pdf' : `${NAMES[series]}_${no}_Sogat-Jutti-Store.pdf`
+        return (opts.invoice ?? (() => pdfResponse(no, status, name, series)))(body)
       }
       throw new Error(`unexpected ${url}`)
     }),
@@ -136,7 +169,7 @@ const catalogueLine = (quantity = 350): CartLine => ({
   calc_request: { product_id: 'rigid_boxes', item_id: RIGID, options: {}, custom_dimensions: null, quantity, addons: [], billing_type: 'gst' },
 })
 
-const SHIP_TO = { business_name: 'Sogat Jutti Store', contact_person: '', address: 'Sector 67, Mohali', phone: '+91 95010 60618', salesperson: 'Mr. X' }
+const SHIP_TO = { business_name: 'Sogat Jutti Store', contact_person: '', address: 'Sector 67, Mohali', phone: '+91 95010 60618', billing_type: 'non_gst' }
 
 let downloads: string[]
 
@@ -172,30 +205,33 @@ describe('invoice money (display)', () => {
     ]
     const m = invoiceMoney(lines, [])
     expect([m.total, m.payable, m.advance, m.balance].map(fromPaise)).toEqual(['148000.00', '148000.00', '118400.00', '29600.00'])
-    const g = invoiceMoney(lines, gstOf('gst_18'))
+    const g = invoiceMoney(lines, slabOf('inter_18'))
     expect([g.gst, g.payable, g.advance, g.balance].map(fromPaise)).toEqual(['26640.00', '174640.00', '139712.00', '34928.00'])
     expect(fromPaise(lineSubtotal(1, '88.50'))).toBe('88.50')
     expect(fromPaise(invoiceMoney([{ quantity: 1, unit_price: '88.50' }], []).advance)).toBe('70.80')
     expect(fromPaise(suggestedSaving(lines))).toBe('7000.00')
   })
 
-  // The same cases as backend/tests/test_gst.py, so the preview matches the PDF to the paisa.
+  // The same cases as backend/tests/test_quotation_gst.py (Step 8), so the preview matches the PDF.
   const taxed = (price: string, key: string) => {
-    const m = invoiceMoney([{ quantity: 1, unit_price: price }], gstOf(key))
-    return [...m.taxes.map((t) => `${t.name} @ ${t.rate}% ${fromPaise(t.amount)}`), fromPaise(m.payable)]
+    const m = invoiceMoney([{ quantity: 1, unit_price: price }], slabOf(key))
+    return [...m.taxes.map((t) => fromPaise(t.amount)), fromPaise(m.payable)]
   }
 
-  it('charges each GST component on the total', () => {
-    expect(taxed('10000', 'gst_5')).toEqual(['GST @ 5% 500.00', '10500.00'])
-    expect(taxed('10000', 'gst_12')).toEqual(['GST @ 12% 1200.00', '11200.00'])
-    expect(taxed('10000', 'gst_18')).toEqual(['GST @ 18% 1800.00', '11800.00'])
-    expect(taxed('10000', 'cgst_sgst_9_9')).toEqual(['CGST @ 9% 900.00', 'SGST/UTGST @ 9% 900.00', '11800.00'])
-  })
-
-  it('rounds each component half up on its own', () => {
-    expect(taxed('100.05', 'gst_18')).toEqual(['GST @ 18% 18.01', '118.06'])
-    expect(taxed('100.05', 'cgst_sgst_9_9')).toEqual(['CGST @ 9% 9.00', 'SGST/UTGST @ 9% 9.00', '118.05'])
-    expect(invoiceMoney([], gstOf('cgst_sgst_9_9')).taxes.map((t) => t.amount)).toEqual([0n, 0n])
+  it('charges CGST, UGST and IGST on the taxable value, each rounded half up on its own', () => {
+    const table: [string, string[], string[]][] = [
+      ['intra_5', ['250.00', '250.00', '0.00', '10500.00'], ['2.50', '2.50', '0.00', '105.05']],
+      ['intra_12', ['600.00', '600.00', '0.00', '11200.00'], ['6.00', '6.00', '0.00', '112.05']],
+      ['intra_18', ['900.00', '900.00', '0.00', '11800.00'], ['9.00', '9.00', '0.00', '118.05']],
+      ['inter_5', ['0.00', '0.00', '500.00', '10500.00'], ['0.00', '0.00', '5.00', '105.05']],
+      ['inter_12', ['0.00', '0.00', '1200.00', '11200.00'], ['0.00', '0.00', '12.01', '112.06']],
+      ['inter_18', ['0.00', '0.00', '1800.00', '11800.00'], ['0.00', '0.00', '18.01', '118.06']],
+    ]
+    for (const [key, at10000, at100] of table) {
+      expect(taxed('10000', key)).toEqual(at10000)
+      expect(taxed('100.05', key)).toEqual(at100)
+    }
+    expect(invoiceMoney([], slabOf('intra_18')).taxes.map((t) => t.amount)).toEqual([0n, 0n, 0n])
   })
 })
 
@@ -241,7 +277,7 @@ describe('cart', () => {
     expect(typed).toEqual([500])
   })
 
-  it('U3: print buttons wait for Ship To and a priced line', async () => {
+  it('U3: print buttons wait for a bill type, Ship To and a priced line', async () => {
     savedCart([{ ...catalogueLine(), unit_price: '' }])
     mockApi()
     const user = setup()
@@ -250,12 +286,17 @@ describe('cart', () => {
     const unpaid = screen.getByRole('button', { name: 'Print (Unpaid as of now)' })
     const paid = screen.getByRole('button', { name: 'Print (Paid)' })
     expect(unpaid).toBeDisabled()
+    expect(screen.getByText('Print: give every line a price, choose a bill type.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Non-GST invoice')).not.toBeChecked() // no default
+    expect(screen.getByLabelText('GST invoice')).not.toBeChecked()
+    await user.click(screen.getByLabelText('Non-GST invoice'))
     await user.type(screen.getByLabelText('Business name'), SHIP_TO.business_name)
     await user.type(screen.getByLabelText(/^Address/), SHIP_TO.address)
     expect(unpaid).toBeDisabled()
-    await user.type(screen.getByLabelText('Phone'), SHIP_TO.phone)
-    await user.type(screen.getByLabelText('Salesperson Name'), SHIP_TO.salesperson)
+    expect(screen.getByText('Print: give every line a price, fill in Ship To.')).toBeInTheDocument()
+    await user.type(screen.getByLabelText(/^Phone/), SHIP_TO.phone)
     expect(unpaid).toBeDisabled() // the line still has no price
+    expect(unpaid).toHaveAccessibleDescription('Print: give every line a price.')
     await user.click(screen.getByRole('button', { name: 'Edit' }))
     await user.click(screen.getByRole('button', { name: 'Edit price' }))
     await user.type(screen.getByLabelText('Unit price (₹)'), '70')
@@ -263,101 +304,154 @@ describe('cart', () => {
     expect(paid).toBeEnabled()
   })
 
-  it('Salesperson Name is required: empty or spaces block both prints with an inline error', async () => {
-    savedCart([catalogueLine()], { ...SHIP_TO, salesperson: '' })
+  it('no salesperson: the field is gone and an old saved name is dropped', async () => {
+    savedCart([catalogueLine()], { ...SHIP_TO, salesperson: 'Mr. X', billing_type: 'without_gst', gst_option: 'gst_18' })
     sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
     const api = mockApi()
     const user = setup()
     renderApp()
     await openCart(user)
-    const unpaid = screen.getByRole('button', { name: 'Print (Unpaid as of now)' })
-    const paid = screen.getByRole('button', { name: 'Print (Paid)' })
-    const field = screen.getByLabelText('Salesperson Name')
-    expect(unpaid).toBeDisabled()
-    expect(paid).toBeDisabled()
-    // Only the name is missing: the field says so, and so does the line under the buttons.
-    expect(field).toHaveAttribute('aria-invalid', 'true')
-    expect(screen.getByText('Enter the salesperson name')).toBeInTheDocument()
-    expect(screen.getByText('Enter the Salesperson Name to generate the invoice.')).toBeInTheDocument()
-
-    await user.type(field, '    ')
-    expect(unpaid).toBeDisabled()
-    expect(screen.getByText('Enter the salesperson name')).toBeInTheDocument()
-
-    await user.clear(field)
-    await user.type(field, '  Mr.   X  ')
-    expect(field).not.toHaveAttribute('aria-invalid')
-    expect(unpaid).toBeEnabled()
-    expect(paid).toBeEnabled()
-    await user.click(unpaid)
+    expect(screen.queryByLabelText(/Salesperson/)).not.toBeInTheDocument()
+    // An old cart's "Without GST billing" was the default, not a choice: the bill type starts unchosen.
+    expect(screen.getByLabelText('Non-GST invoice')).not.toBeChecked()
+    await user.click(screen.getByLabelText('Non-GST invoice'))
+    await user.click(screen.getByRole('button', { name: 'Print (Unpaid as of now)' }))
     await waitFor(() => expect(api.invoices).toHaveLength(1))
-    expect(api.invoices[0].salesperson).toBe('Mr. X') // trimmed, inner runs squeezed
-
-    // Clear cart keeps the name for the next invoice.
-    await user.click(await screen.findByRole('button', { name: 'Clear cart' }))
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).checkout.salesperson).toBe('  Mr.   X  ')
+    expect(api.invoices[0]).not.toHaveProperty('salesperson')
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).checkout).not.toHaveProperty('salesperson')
   })
 
-  it('Salesperson Name shows its error once left empty, even while Ship To is incomplete', async () => {
+  it('Quotation needs only a non-empty cart: no bill type, no Ship To, no payment state', async () => {
     savedCart([catalogueLine()])
+    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
+    const api = mockApi()
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    const quote = screen.getByRole('button', { name: 'Quotation' })
+    expect(quote).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Print (Unpaid as of now)' })).toBeDisabled()
+    await user.click(quote)
+    await waitFor(() => expect(downloads).toEqual(['Quotation_1_Sogat-Jutti-Store.pdf']))
+    expect(api.invoices[0]).toMatchObject({ document_type: 'quotation', bill_type: null, gst_slab: null, gst: null, print_mode: null, payments: [], bill_no: null })
+    expect(await screen.findByText('Quotation 1 downloaded')).toBeInTheDocument()
+
+    // A GST choice doesn't change a quotation.
+    await user.click(screen.getByLabelText('GST invoice'))
+    await user.selectOptions(screen.getByLabelText('GST slab'), 'intra_18')
+    await user.click(quote)
+    await waitFor(() => expect(api.invoices).toHaveLength(2))
+    expect(api.invoices[1]).toMatchObject({ document_type: 'quotation', bill_type: null, gst_slab: null, gst: null })
+  })
+
+  it('Quotation waits for a priced line and says so', async () => {
+    savedCart([{ ...catalogueLine(), unit_price: '' }])
     mockApi()
     const user = setup()
     renderApp()
     await openCart(user)
-    const field = screen.getByLabelText('Salesperson Name')
-    expect(screen.queryByText('Enter the salesperson name')).not.toBeInTheDocument()
-    await user.click(field)
-    await user.tab()
-    expect(screen.getByText('Enter the salesperson name')).toBeInTheDocument()
-    expect(field).toHaveAttribute('maxlength', '100')
+    const quote = screen.getByRole('button', { name: 'Quotation' })
+    expect(quote).toBeDisabled()
+    expect(quote).toHaveAccessibleDescription('Quotation: give every line a price.')
   })
 
-  it('With GST billing needs a GST rate; the summary and the request follow it', async () => {
-    savedCart([catalogueLine()], SHIP_TO)
+  it('GST invoice: grouped slab dropdown, GST fields, all three tax rows and the request', async () => {
+    savedCart([catalogueLine()], { ...SHIP_TO, billing_type: '' })
     sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
     const api = mockApi()
     const user = setup()
     renderApp()
     await openCart(user)
     const unpaid = screen.getByRole('button', { name: 'Print (Unpaid as of now)' })
-    const paid = screen.getByRole('button', { name: 'Print (Paid)' })
-    expect(unpaid).toBeEnabled()
-    expect(screen.queryByLabelText('GST Rate')).not.toBeInTheDocument() // Without GST billing: no dropdown
+    expect(screen.queryByLabelText('GST slab')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Transport')).not.toBeInTheDocument()
 
-    await user.click(screen.getByLabelText('With GST billing'))
-    const select = await screen.findByLabelText('GST Rate')
+    await user.click(screen.getByLabelText('GST invoice'))
+    const select = await screen.findByLabelText('GST slab')
     expect(select).toHaveValue('')
     expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
-      'Select GST rate',
-      '5% GST',
-      '12% GST',
-      '18% GST',
-      '9% CGST + 9% SGST/UTGST',
+      'Select GST slab',
+      '2.5% CGST + 2.5% SGST/UTGST (5%)',
+      '6% CGST + 6% SGST/UTGST (12%)',
+      '9% CGST + 9% SGST/UTGST (18%)',
+      '5% IGST',
+      '12% IGST',
+      '18% IGST',
+    ])
+    expect([...select.querySelectorAll('optgroup')].map((g) => g.label)).toEqual([
+      'Intra-state (CGST + SGST/UTGST, IGST 0%)',
+      'Inter-state (IGST)',
     ])
     expect(unpaid).toBeDisabled()
-    expect(paid).toBeDisabled()
-    expect(screen.getAllByText(/Select a GST rate to generate the invoice/).length).toBeGreaterThan(0)
+    expect(screen.getByText('Print: select a GST slab.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Buyer Info (Billed to)' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Same as buyer')).toBeChecked()
+    expect(screen.getByLabelText(/^Payment Terms/)).toHaveValue('Advance')
+    expect(screen.getByLabelText(/^Transport/)).toHaveValue('Self')
+    expect(screen.getByLabelText(/^Station/)).toHaveValue('Chandigarh')
 
     const summary = screen.getByLabelText('Invoice summary')
-    await user.selectOptions(select, 'gst_12')
-    expect(within(summary).getByText('GST @ 12%').nextSibling).toHaveTextContent('₹3,150.00')
-    expect(screen.getByTestId('payable')).toHaveTextContent('₹29,400.00')
-
-    await user.selectOptions(select, 'cgst_sgst_9_9')
-    expect(within(summary).queryByText('GST @ 12%')).not.toBeInTheDocument()
-    expect(within(summary).getByText('CGST @ 9%').nextSibling).toHaveTextContent('₹2,362.50')
-    expect(within(summary).getByText('SGST/UTGST @ 9%').nextSibling).toHaveTextContent('₹2,362.50')
+    await user.selectOptions(select, 'inter_18')
+    expect(within(summary).getByText('CGST (0%)').nextSibling).toHaveTextContent('₹0.00')
+    expect(within(summary).getByText('UGST (0%)').nextSibling).toHaveTextContent('₹0.00')
+    expect(within(summary).getByText('IGST (18%)').nextSibling).toHaveTextContent('₹4,725.00')
     expect(screen.getByTestId('payable')).toHaveTextContent('₹30,975.00')
+    await user.selectOptions(select, 'intra_18')
+    expect(within(summary).getByText('CGST (9%)').nextSibling).toHaveTextContent('₹2,362.50')
+    expect(within(summary).getByText('IGST (0%)').nextSibling).toHaveTextContent('₹0.00')
     expect(unpaid).toBeEnabled()
-    expect(paid).toBeEnabled()
 
+    // Non-blocking warnings: no HSN code yet, and a buyer from another state on an intra-state slab.
+    const warnings = screen.getByRole('status', { name: 'GST invoice warnings' })
+    expect(warnings).toHaveTextContent('1 line has no HSN code')
+    await user.type(screen.getByLabelText(/^Buyer GSTIN/), '03abcde1234f1z5')
+    expect(warnings).toHaveTextContent("The buyer's GSTIN is from state 03, but an intra-state slab is chosen")
+    expect(unpaid).toBeEnabled()
+
+    await user.clear(screen.getByLabelText(/^Transport/))
+    await user.type(screen.getByLabelText('HSN code for Customised rigid box printing'), '4819')
+    expect(warnings).not.toHaveTextContent('HSN')
     await user.click(unpaid)
     await waitFor(() => expect(api.invoices).toHaveLength(1))
-    expect(api.invoices[0]).toMatchObject({ billing_type: 'with_gst', gst_option: 'cgst_sgst_9_9' })
+    expect(api.invoices[0]).toMatchObject({
+      document_type: 'invoice',
+      bill_type: 'gst',
+      gst_slab: 'intra_18',
+      print_mode: 'unpaid',
+      gst: {
+        buyer: { name: 'Sogat Jutti Store', gstin: '03ABCDE1234F1Z5' },
+        consignee_same: true,
+        consignee: null,
+        payment_terms: 'Advance',
+        transport: '', // cleared: blank prints blank
+        station: 'Chandigarh',
+      },
+    })
+    expect(api.invoices[0].lines[0].hsn_code).toBe('4819')
+    expect(await screen.findByText('GST invoice 1 downloaded')).toBeInTheDocument()
 
-    await user.click(screen.getByLabelText('Without GST billing'))
-    expect(screen.queryByLabelText('GST Rate')).not.toBeInTheDocument()
+    await user.click(screen.getByLabelText('Non-GST invoice'))
+    expect(screen.queryByLabelText('GST slab')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Same as buyer')).not.toBeInTheDocument()
     expect(screen.getByTestId('payable')).toHaveTextContent('₹26,250.00')
+  })
+
+  it('each bill type pre-fills its own next number', async () => {
+    savedCart([catalogueLine()], { ...SHIP_TO, billing_type: '' })
+    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
+    mockApi()
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    expect(screen.queryByLabelText('Bill No')).not.toBeInTheDocument()
+    await user.click(screen.getByLabelText('Non-GST invoice'))
+    await waitFor(() => expect(screen.getByLabelText('Bill No')).toHaveValue('19'))
+    await user.click(screen.getByLabelText('GST invoice'))
+    expect(screen.getByLabelText('Bill No')).toHaveValue('1')
+    await user.clear(screen.getByLabelText('Bill No'))
+    await user.type(screen.getByLabelText('Bill No'), '7')
+    await user.click(screen.getByLabelText('Non-GST invoice'))
+    expect(screen.getByLabelText('Bill No')).toHaveValue('7') // typed by hand: kept
   })
 
   it('U4: Print (Unpaid) asks for the passcode, posts no payments and downloads the named file', async () => {
@@ -373,9 +467,17 @@ describe('cart', () => {
     await waitFor(() => expect(downloads).toEqual(['Invoice_19_Sogat-Jutti-Store_Unpaid.pdf']))
     expect(api.logins).toBe(1)
     expect(api.invoices).toHaveLength(1)
-    expect(api.invoices[0]).toMatchObject({ print_mode: 'unpaid', payments: [], bill_no: null, billing_type: 'without_gst', gst_option: null })
+    expect(api.invoices[0]).toMatchObject({
+      document_type: 'invoice',
+      bill_type: 'non_gst',
+      gst_slab: null,
+      gst: null,
+      print_mode: 'unpaid',
+      payments: [],
+      bill_no: null,
+    })
     expect(api.invoices[0].customer.business_name).toBe('Sogat Jutti Store')
-    expect(api.invoices[0].salesperson).toBe('Mr. X')
+    expect(api.invoices[0]).not.toHaveProperty('salesperson')
     expect(await screen.findByText('Invoice 19 downloaded')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Clear cart' })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Bill No')).toHaveValue('20'))
