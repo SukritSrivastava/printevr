@@ -2,7 +2,8 @@
 
 The invoice's page (band, Date line, Ship To, From) with QUOTATION in the pill and Quote No;
 columns ITEM, QUANTITY, MARKET PRICE, DISCOUNTED PRICE, SUBTOTAL; then TOTAL, SUB TOTAL, the
-UPI details, the saving block and the footer notes. No tax rows, no payment terms.
+the saving block and the footer notes. No tax rows and no payment details of any kind: no
+payment terms, UPI or bank details, and none of the footer's payment notes.
 """
 from . import fmt
 from . import layout as L
@@ -154,9 +155,6 @@ def _totals_and_footer(doc: InvoiceDocument, cfg: InvoiceConfig, total) -> list[
         vsize = max(Q.SUB_VALUE_MIN_SIZE, round(vsize - 0.25, 2))
     ops.append(Text(vx, vy, amount, vfont, vsize, "right"))
 
-    font, size = Q.UPI_FONT
-    for i, text in enumerate(q["upi_lines"]):
-        ops.append(Text(Q.UPI_X, Q.UPI_Y0 + i * Q.UPI_STEP, text, font, size))
 
     if doc.saving_amount is not None and doc.saving_amount > 0:
         for template, y in zip(cfg.saving_lines, Q.SAVING_LINES_Y):
@@ -171,9 +169,7 @@ def _totals_and_footer(doc: InvoiceDocument, cfg: InvoiceConfig, total) -> list[
     for spec, text in (
         (Q.THANKS, f["thanks"]),
         (Q.CONTACT, f["contact_prefix"] + f["email"]),
-        (Q.ADVANCE_NOTE, f["advance_note"]),
         (Q.COLOUR_NOTE, f["colour_note"]),
-        (Q.LATE_NOTE, f["late_note"]),
         (Q.TERMS_NOTE, f["terms_note"]),
         (Q.GST_NOTE, f["gst_note_without_gst"]),
     ):

@@ -118,7 +118,8 @@ footer:
 
 # ---------------------------------------------------------------- Quotation
 # docs/templates/quotation.pdf: the Printevr layout with its own title and number label.
-# Quotations are numbered in their own series and never carry tax or a payment state.
+# Quotations are numbered in their own series and carry no tax, payment state or payment
+# details (the template's UPI block and the footer's payment notes are left off).
 quotation:
   quote_no_start: 1
   title: "QUOTATION"
@@ -130,14 +131,6 @@ quotation:
     market_price: ["MARKET", "PRICE"]
     discounted_price: ["DISCOUNTED", "PRICE"]
     subtotal: "SUBTOTAL"
-  # The template's payment block, line by line (spacing as on the template).
-  upi_lines:
-    - "Here are my UPI details"
-    - "Name - Ambika"
-    - "UPI Handle - 6239645912@ptyes"
-    - "Account number -  672710110005255"
-    - "IFSC Code :- BKID0006727."
-    - "Account holder name - Ambika."
 
 # ---------------------------------------------------------------- GST invoice (BASTTA)
 # docs/templates/gst_invoice.pdf. Text copied from the template, with three typos fixed:

@@ -56,11 +56,8 @@ SUB_VALUE = (538.3, 621.97, L.REGULAR, 14.95)  # right edge
 SUB_VALUE_MIN_X = 481.0
 SUB_VALUE_MIN_SIZE = 11.0
 
-# ---- UPI block (text only; the template's QR code is left off)
-UPI_X = 407.27
-UPI_Y0 = 738.96
-UPI_STEP = 12.59
-UPI_FONT = (L.BOLD, 8.39)
+# The template's UPI block (QR and details) and its two payment notes are left off: a
+# quotation carries no payment details.
 
 # ---- saving block and footer (smaller than the invoice's on this template)
 SAVING_X = 14.49
@@ -72,9 +69,7 @@ APPROX = (6.3, 779.24, L.REGULAR, 6.27, "APPROX")  # gap after the amount, basel
 THANKS = (11.62, 798.65, L.REGULAR, 6.65)
 CONTACT = (11.62, 806.78, L.REGULAR, 5.70)
 EMAIL_RULE_Y = (807.1, 807.5)
-ADVANCE_NOTE = (11.62, 815.05, L.REGULAR, 4.28)
 COLOUR_NOTE = (11.75, 821.89, L.REGULAR, 4.28)
-LATE_NOTE = (141.13, 821.89, L.REGULAR, 4.28)
 TERMS_NOTE = (11.75, 828.81, L.REGULAR, 4.28)
 GST_NOTE = (140.76, 828.88, L.REGULAR, 4.75)
 

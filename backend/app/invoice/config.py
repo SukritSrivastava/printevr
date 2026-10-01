@@ -35,7 +35,7 @@ class InvoiceConfig:
     gst_slabs: tuple[GstSlab, ...] = ()
     seller_state_code: str = ""
     gst_invoice: dict | None = None
-    # Quotations: the Printevr template's title, number label and UPI block.
+    # Quotations: the Printevr template's title, number label and table labels.
     quotation: dict | None = None
 
     @property
@@ -77,7 +77,7 @@ EMAIL_LABELS = (
     "customer", "bill_no", "invoice_date", "items", "item", "quantity", "unit_price", "subtotal",
     "total", "payable", "status", "received", "pending", "attached", "currency",
 )
-REQUIRED_QUOTATION = ("quote_no_start", "title", "number_label", "filename", "table_labels", "upi_lines")
+REQUIRED_QUOTATION = ("quote_no_start", "title", "number_label", "filename", "table_labels")
 REQUIRED_GST_INVOICE = (
     "bill_no_start", "filename", "seller_name", "seller_lines", "copy_label", "date_label", "number_label",
     "buyer_heading", "consignee_heading", "party_phone", "party_gstin", "field_labels", "field_defaults",

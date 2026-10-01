@@ -234,7 +234,7 @@ def test_quotation_and_non_gst_totals_match_and_have_no_tax(client, auth):  # no
     header = " ".join(pdf_lines(quo.content))
     for label in ("ITEM", "QUANTITY", "MARKET", "DISCOUNTED", "PRICE", "SUBTOTAL"):
         assert label in header, label
-    assert "Here are my UPI details" in quo_text and "PAYMENT TERMS" not in quo_text
+    assert "PAYMENT TERMS" not in quo_text and "Here are my UPI details" not in quo_text
     assert "PAYMENT TERMS     (WITHOUT GST BILLING)" in pdf_lines(inv.content)
     listed = client.get("/api/invoices/19", headers=auth).json()
     assert listed["total"] == listed["payable"] == "26250.00" and listed["gst"] is None
@@ -429,10 +429,16 @@ def test_advance_pct_must_be_a_percent(client, auth, bad):  # noqa: F811
     assert r.status_code == 422
 
 
-def test_quotation_prints_upi_details_without_a_qr_code(client, auth):  # noqa: F811
-    r = client.post("/api/invoices", json=quotation_body([k1_line(client)]), headers=auth)
+def test_quotation_has_no_payment_details(client, auth):  # noqa: F811
+    r = client.post("/api/invoices", json=quotation_body([k1_line(client)], saving_amount="500"), headers=auth)
     with open_pdf(r.content) as pdf:
         images = pdf.pages[0].images
-    assert len(images) == 2  # the band and the Printevr logo only
-    assert all(i["top"] < 160 for i in images)  # nothing down by the UPI block
-    assert "Here are my UPI details" in pdf_text(r.content)
+    assert len(images) == 2  # the band and the Printevr logo only: no QR code
+    text = pdf_text(r.content)
+    for gone in ("UPI", "Account number", "IFSC", "Account holder", "PAYMENT", "Payment", "payment", "Recieved", "Received"):
+        assert gone not in text, gone
+    for kept in ("THANK YOU FOR YOUR BUSINESS.", "Colours can vary", "Terms & Condition applied", "TOTAL: 26250", "SAVING"):
+        assert kept in text, kept
+    # Invoices keep theirs.
+    inv = pdf_text(client.post("/api/invoices", json=invoice_body([k1_line(client)]), headers=auth).content)
+    assert "100% OF THE PAYMENT WILL BE TAKEN IN ADVANCE FOR PRINTING ORDERS" in inv and "Late payment" in inv
