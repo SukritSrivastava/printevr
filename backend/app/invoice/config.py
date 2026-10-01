@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from .gst import GstOption, parse_options
+from .gst import GstOption, GstSlab, parse_options, parse_slabs
 
 
 class InvoiceConfigError(Exception):
@@ -16,7 +16,8 @@ class InvoiceConfigError(Exception):
 @dataclass(frozen=True)
 class InvoiceConfig:
     bill_no_start: int
-    gst_options: tuple[GstOption, ...]
+    # Old "With GST billing" options: only for reading invoices saved with them.
+    legacy_gst_options: tuple[GstOption, ...]
     advance_pct: Decimal
     pad_single_digit_unit_price: bool
     filename: str
@@ -29,7 +30,13 @@ class InvoiceConfig:
     footer: dict
     # Where new invoices and payments are emailed, with subject and body text; None = no emails.
     email: dict | None = None
-    salesperson_label: str = "Salesperson"
+    # GST invoices: the slabs (grouped for the dropdown) and the BASTTA template's text.
+    gst_slab_groups: tuple[dict, ...] = ()
+    gst_slabs: tuple[GstSlab, ...] = ()
+    seller_state_code: str = ""
+    gst_invoice: dict | None = None
+    # Quotations: the Printevr template's title, number label and UPI block.
+    quotation: dict | None = None
 
     @property
     def balance_pct(self) -> Decimal:
@@ -62,11 +69,31 @@ REQUIRED_FOOTER = (
 )
 
 
-REQUIRED_EMAIL = ("to", "subject_new", "subject_payment", "intro_new", "intro_payment", "labels", "status_labels")
-EMAIL_LABELS = (
-    "generated_by", "customer", "bill_no", "invoice_date", "items", "item", "quantity", "unit_price", "subtotal",
-    "total", "payable", "status", "received", "pending", "attached", "unknown_salesperson", "currency",
+REQUIRED_EMAIL = (
+    "to", "subject_new", "subject_payment", "subject_new_gst", "subject_payment_gst", "intro_new", "intro_payment",
+    "intro_new_gst", "intro_payment_gst", "labels", "status_labels",
 )
+EMAIL_LABELS = (
+    "customer", "bill_no", "invoice_date", "items", "item", "quantity", "unit_price", "subtotal",
+    "total", "payable", "status", "received", "pending", "attached", "currency",
+)
+REQUIRED_QUOTATION = ("quote_no_start", "title", "number_label", "filename", "table_labels", "upi_lines")
+REQUIRED_GST_INVOICE = (
+    "bill_no_start", "filename", "seller_name", "seller_lines", "copy_label", "date_label", "number_label",
+    "buyer_heading", "consignee_heading", "party_phone", "party_gstin", "field_labels", "field_defaults",
+    "table_labels", "totals", "bank_lines", "terms_heading", "terms_lines", "certified", "signatory",
+)
+GST_FIELDS = ("delivery_terms", "payment_terms", "po_date", "gr_rr_no", "transport", "vehicle_no", "eway_bill_no", "station")
+
+
+def _section(raw: dict | None, name: str, required: tuple[str, ...]) -> dict:
+    section = dict(raw or {})
+    missing = [f"{name}.{k}" for k in required if k not in section]
+    if name == "gst_invoice" and isinstance(section.get("field_labels"), dict):
+        missing += [f"gst_invoice.field_labels.{k}" for k in GST_FIELDS if k not in section["field_labels"]]
+    if missing:
+        raise InvoiceConfigError(f"invoice config: missing {', '.join(missing)}")
+    return section
 
 
 def _email(raw: dict | None) -> dict | None:
@@ -93,7 +120,7 @@ def parse(raw: dict) -> InvoiceConfig:
             raise InvoiceConfigError(f"invoice config: missing {', '.join(missing)}")
         return InvoiceConfig(
             bill_no_start=int(raw["bill_no_start"]),
-            gst_options=parse_options(raw["gst_options"]),
+            legacy_gst_options=parse_options(raw.get("legacy_gst_options") or []),
             advance_pct=Decimal(str(raw["advance_pct"])),
             pad_single_digit_unit_price=bool(raw.get("pad_single_digit_unit_price", True)),
             filename=str(raw["filename"]),
@@ -105,7 +132,11 @@ def parse(raw: dict) -> InvoiceConfig:
             saving_lines=[str(line) for line in raw["saving_lines"]],
             footer=footer,
             email=_email(raw.get("email")),
-            salesperson_label=str(raw.get("salesperson_label") or "Salesperson"),
+            gst_slab_groups=tuple(dict(g) for g in raw["gst_slab_groups"]),
+            gst_slabs=parse_slabs(raw["gst_slabs"], raw["gst_slab_groups"], raw["gst_component_names"]),
+            seller_state_code=str(raw.get("seller_state_code") or ""),
+            gst_invoice=_section(raw.get("gst_invoice"), "gst_invoice", REQUIRED_GST_INVOICE),
+            quotation=_section(raw.get("quotation"), "quotation", REQUIRED_QUOTATION),
         )
     except KeyError as exc:
         raise InvoiceConfigError(f"invoice config: missing {exc.args[0]!r}") from None

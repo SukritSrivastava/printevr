@@ -30,7 +30,9 @@ class Composed:
 
 def doc_components(doc: InvoiceDocument) -> tuple[GstComponent, ...]:
     """The GST components an issued invoice was charged: stored with it, never re-read from config."""
-    if doc.billing_type != "with_gst":
+    if doc.series == "gst":
+        return tuple(GstComponent(t.name, t.rate) for t in doc.taxes)
+    if doc.series == "quotation" or doc.billing_type != "with_gst":
         return ()
     if not doc.taxes:
         return LEGACY_COMPONENTS
@@ -46,6 +48,10 @@ def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
     L.register_fonts()
     m = document_money(doc, cfg)
     rows = [layout_row(line, cfg.pad_single_digit_unit_price) for line in doc.lines]
+    # As on the template, an article and its add-on rows share a block: no rule between them.
+    for row, following in zip(rows, doc.lines[1:]):
+        if following.source == "addon":
+            row.ops = [op for op in row.ops if not isinstance(op, Bar)]
     entries = [terms.PaymentEntry(p.amount, p.date) for p in doc.payments]
     box = layout_box(
         terms.title(cfg.payment_terms, doc.billing_type),
@@ -97,8 +103,6 @@ def _page_one_top(doc: InvoiceDocument, cfg: InvoiceConfig) -> list[Op]:
         _text(L.BILL_LABEL, "Bill No"),
         _text(L.BILL_VALUE, L.VALUE_PREFIX + str(doc.bill_no)),
     ]
-    if doc.salesperson:
-        ops += _salesperson(doc.salesperson, cfg.salesperson_label)
     for heading, bar in ((L.SHIP_TO_HEADING, L.SHIP_TO_RULE), (L.FROM_HEADING, L.FROM_RULE)):
         x, y, font, size, text = heading
         ops.append(Text(x, y, text, font, size, char_space=L.TRACKING.get(text, 0.0)))
@@ -108,24 +112,6 @@ def _page_one_top(doc: InvoiceDocument, cfg: InvoiceConfig) -> list[Op]:
         ops.append(Text(L.FROM_LINES_X, y, text, font, size))
     ops += _ship_to(doc)
     return ops
-
-
-def _salesperson(name: str, label: str) -> list[Op]:
-    """`Salesperson  :  Mr. X` under Bill No: same font and size, shrinking (then cut short) to fit the band."""
-    x, y, font, size = L.SALES_LABEL
-    value_x = x + L.width(label, font, size) + L.SALES_VALUE_GAP
-    name_x = value_x + L.width(L.VALUE_PREFIX, font, size)
-    room = L.SALES_VALUE_MAX_X - name_x
-    name_size = size
-    while L.width(name, font, name_size) > room and name_size > L.SALES_MIN_SIZE:
-        name_size = max(L.SALES_MIN_SIZE, round(name_size - L.SALES_SHRINK_STEP, 2))
-    if L.width(name, font, name_size) > room:
-        while name and L.width(name.rstrip() + "...", font, name_size) > room:
-            name = name[:-1]
-        name = name.rstrip() + "..."
-    if name_size == size:
-        return [Text(x, y, label, font, size), Text(value_x, y, L.VALUE_PREFIX + name, font, size)]
-    return [Text(x, y, label, font, size), Text(value_x, y, L.VALUE_PREFIX, font, size), Text(name_x, y, name, font, name_size)]
 
 
 def _ship_to(doc: InvoiceDocument) -> list[Op]:
@@ -242,6 +228,12 @@ def draw(composed: Composed) -> bytes:
                     c.drawCentredString(op.x, H - op.y, op.text)
                 elif op.align == "right":
                     c.drawRightString(op.x, H - op.y, op.text)
+                elif op.skew:
+                    c.saveState()
+                    c.translate(op.x, H - op.y)
+                    c.skew(0, op.skew)
+                    c.drawString(0, 0, op.text, charSpace=op.char_space)
+                    c.restoreState()
                 elif op.char_space:
                     c.drawString(op.x, H - op.y, op.text, charSpace=op.char_space)
                 else:
@@ -273,3 +265,16 @@ def draw(composed: Composed) -> bytes:
 
 def render(doc: InvoiceDocument, cfg: InvoiceConfig) -> bytes:
     return draw(compose(doc, cfg))
+
+
+def render_document(doc: InvoiceDocument, cfg: InvoiceConfig) -> bytes:
+    """The PDF in the template for the document's series."""
+    if doc.series == "quotation":
+        from .render_quote import compose_quotation
+
+        return draw(compose_quotation(doc, cfg))
+    if doc.series == "gst":
+        from .render_gst import compose_gst
+
+        return draw(compose_gst(doc, cfg))
+    return render(doc, cfg)

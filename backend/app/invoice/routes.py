@@ -4,6 +4,9 @@ Every /api/invoices route needs `Authorization: Bearer <staff token>`. Without
 STAFF_PASSCODE (or SECRET_KEY, or the invoice config) they answer 503
 INVOICING_DISABLED and the calculator carries on as before.
 
+Quotations, Non-GST invoices and GST invoices share these routes; the ones that read a stored
+document take `?series=quotation|non_gst|gst` (default non_gst, the original invoices).
+
 Without DATABASE_URL (the default on Vercel) invoices aren't stored: POST /api/invoices
 still renders and returns the PDF, the client supplies the Bill No, and the routes that
 read stored invoices answer 503 STORAGE_DISABLED.
@@ -27,7 +30,7 @@ from .store import Store
 
 log = logging.getLogger("printevr.invoice")
 
-EXPOSED_HEADERS = ["Content-Disposition", "X-Bill-No", "X-Invoice-Status"]
+EXPOSED_HEADERS = ["Content-Disposition", "X-Bill-No", "X-Invoice-Status", "X-Document-Series"]
 LOGIN_ATTEMPTS_PER_MINUTE = 5
 
 
@@ -40,6 +43,7 @@ def pdf_response(r: Rendered, status: int = 200) -> Response:
             "Content-Disposition": f"attachment; filename=\"{r.filename}\"; filename*=UTF-8''{quote(r.filename)}",
             "X-Bill-No": str(r.bill_no),
             "X-Invoice-Status": r.status,
+            "X-Document-Series": r.series,
             "Cache-Control": "no-store",
         },
     )
@@ -56,6 +60,22 @@ def create_router(
     """The router, plus its state dict ({"store": Store | None}; tests reach the database through it)."""
     router = APIRouter(prefix="/api")
     state: dict = {"store": None}
+    Series = Literal["non_gst", "gst", "quotation"]
+
+    def slab_settings() -> dict:
+        """The GST slabs (grouped for the dropdown) and the GST invoice's field defaults."""
+        if invoice_cfg is None:
+            return {"gst_slab_groups": [], "seller_state_code": "", "gst_field_defaults": {}}
+        return {
+            "gst_slab_groups": gst.public_slabs(list(invoice_cfg.gst_slab_groups), invoice_cfg.gst_slabs),
+            "seller_state_code": invoice_cfg.seller_state_code,
+            "gst_field_defaults": dict(invoice_cfg.gst_invoice["field_defaults"]),
+        }
+
+    def hsn_codes() -> dict[str, str]:
+        """Each product's HSN code from config/products.yaml (blank until filled in)."""
+        cat = catalogue()
+        return {p.id: p.hsn_code for p in cat.products.values()} if cat else {}
     lock = threading.Lock()
 
     def disabled_reason() -> str | None:
@@ -126,21 +146,25 @@ def create_router(
             "storage": reason is None and bool(settings.database_url),
             # false: no separate staff passcode; the site password covers invoicing
             "staff_passcode": bool(settings.staff_passcode),
-            "gst_options": gst.public(invoice_cfg.gst_options) if invoice_cfg else [],
+            **slab_settings(),
+            "hsn_codes": hsn_codes(),
             "advance_pct": str(invoice_cfg.advance_pct) if invoice_cfg else None,
         }
 
     @router.get("/invoices/next-bill-no")
     def next_bill_no(request: Request):
-        # The money rules ride along so the cart's summary box uses the same numbers as the PDF.
-        return run(
-            request,
-            lambda store: {
-                "next_bill_no": service.next_bill_no(store, invoice_cfg),
-                "gst_options": gst.public(invoice_cfg.gst_options),
+        # Each series' next number (next_bill_no stays the Non-GST one). The money rules ride
+        # along so the cart's summary box uses the same numbers as the PDF.
+        def action(store: Store):
+            numbers = service.next_numbers(store, invoice_cfg)
+            return {
+                "next_bill_no": numbers["non_gst"],
+                "next": numbers,
+                **slab_settings(),
                 "advance_pct": str(invoice_cfg.advance_pct),
-            },
-        )
+            }
+
+        return run(request, action)
 
     @router.post("/invoices")
     def create_invoice(body: InvoiceCreate, request: Request):
@@ -161,32 +185,33 @@ def create_router(
     def list_invoices(
         request: Request,
         q: str | None = Query(default=None, max_length=60),
-        status: Literal["unpaid", "part_paid", "paid"] | None = None,
+        status: Literal["unpaid", "part_paid", "paid", "issued"] | None = None,
         limit: int = Query(default=25, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
+        series: Series = "non_gst",
     ):
-        return run(request, lambda store: service.listing(store, q, status, limit, offset))
+        return run(request, lambda store: service.listing(store, q, status, limit, offset, series))
 
     @router.get("/invoices/{bill_no}")
-    def get_invoice(bill_no: int, request: Request):
-        return run(request, lambda store: service.detail(store, bill_no))
+    def get_invoice(bill_no: int, request: Request, series: Series = "non_gst"):
+        return run(request, lambda store: service.detail(store, bill_no, series))
 
     @router.get("/invoices/{bill_no}/pdf")
-    def get_pdf(bill_no: int, request: Request):
-        return run(request, lambda store: pdf_response(service.download(store, invoice_cfg, bill_no)))
+    def get_pdf(bill_no: int, request: Request, series: Series = "non_gst"):
+        return run(request, lambda store: pdf_response(service.download(store, invoice_cfg, bill_no, series)))
 
     @router.post("/invoices/{bill_no}/payments")
-    def add_payment(bill_no: int, body: PaymentCreate, request: Request):
+    def add_payment(bill_no: int, body: PaymentCreate, request: Request, series: Series = "non_gst"):
         def action(store: Store):
-            rendered = service.add_payment(store, invoice_cfg, bill_no, body)
+            rendered = service.add_payment(store, invoice_cfg, bill_no, body, series)
             mailer.send(settings, invoice_cfg, rendered, "payment")
             return pdf_response(rendered)
 
         return run(request, action)
 
     @router.delete("/invoices/{bill_no}")
-    def delete_invoice(bill_no: int, request: Request):
-        return run(request, lambda store: service.delete(store, bill_no))
+    def delete_invoice(bill_no: int, request: Request, series: Series = "non_gst"):
+        return run(request, lambda store: service.delete(store, bill_no, series))
 
     state["disabled_reason"] = disabled_reason
     state["guard"] = guard

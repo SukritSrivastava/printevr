@@ -13,13 +13,11 @@ from app.settings import get_settings
 from .conftest import RIGID_TB
 
 PASSCODE = "print-shop-1234"
-GST_OPTIONS = [
-    {"key": "gst_5", "label": "5% GST", "components": [{"name": "GST", "rate": "5"}]},
-    {"key": "gst_12", "label": "12% GST", "components": [{"name": "GST", "rate": "12"}]},
-    {"key": "gst_18", "label": "18% GST", "components": [{"name": "GST", "rate": "18"}]},
-    {"key": "cgst_sgst_9_9", "label": "9% CGST + 9% SGST/UTGST",
-     "components": [{"name": "CGST", "rate": "9"}, {"name": "SGST/UTGST", "rate": "9"}]},
-]
+SLAB_KEYS = [["intra_5", "intra_12", "intra_18"], ["inter_5", "inter_12", "inter_18"]]
+
+
+def slab_keys(groups: list[dict]) -> list[list[str]]:
+    return [[s["key"] for s in g["slabs"]] for g in groups]
 
 
 @pytest.fixture(scope="module")
@@ -73,14 +71,14 @@ def invoice_body(lines, print_mode="unpaid", payments=None, **changes):
     return {
         "bill_no": None,
         "invoice_date": "2026-09-29",
-        "billing_type": "without_gst",
+        "document_type": "invoice",
+        "bill_type": "non_gst",
         "customer": {"business_name": "Sogat Jutti Store", "contact_person": "Ramjot Chhokar",
                      "address": "Sector 67, Mohali, India, 160062", "phone": "+91 95010 60618"},
         "lines": lines,
         "payments": payments or [],
         "saving_amount": None,
         "print_mode": print_mode,
-        "salesperson": "Mr. X",
         **changes,
     }
 
@@ -134,8 +132,9 @@ def test_a5_bill_no_taken(client, auth):
     r = client.post("/api/invoices", json=invoice_body([k1_line(client)], bill_no=40), headers=auth)
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "BILL_NO_TAKEN" and r.json()["error"]["details"]["next_bill_no"] == 41
-    assert client.get("/api/invoices/next-bill-no", headers=auth).json() == {
-        "next_bill_no": 41, "gst_options": GST_OPTIONS, "advance_pct": "80"}
+    nxt = client.get("/api/invoices/next-bill-no", headers=auth).json()
+    assert nxt["next_bill_no"] == 41 and nxt["next"] == {"quotation": 1, "non_gst": 41, "gst": 1}
+    assert slab_keys(nxt["gst_slab_groups"]) == SLAB_KEYS and nxt["advance_pct"] == "80"
 
 
 def test_a6_prices_changed_and_manual_edit(app, client, auth):
@@ -200,7 +199,7 @@ def test_delete_invoice(app, client, auth):
         assert client.post("/api/invoices", json=invoice_body([k1_line(client)]), headers=auth).status_code == 201
     assert client.delete("/api/invoices/19").status_code == 401
     r = client.delete("/api/invoices/19", headers=auth)
-    assert r.status_code == 200 and r.json() == {"deleted": 19}
+    assert r.status_code == 200 and r.json() == {"deleted": 19, "series": "non_gst"}
     assert [i["bill_no"] for i in client.get("/api/invoices", headers=auth).json()["invoices"]] == [20]
     assert client.get("/api/invoices/19", headers=auth).status_code == 404
     assert client.delete("/api/invoices/19", headers=auth).json()["error"]["code"] == "NOT_FOUND"
@@ -279,8 +278,13 @@ def unsaved(unsaved_app):
 
 
 def test_settings_endpoint(app, unsaved_app):
-    assert TestClient(app).get("/api/invoice-settings").json() == {
-        "enabled": True, "storage": True, "staff_passcode": True, "gst_options": GST_OPTIONS, "advance_pct": "80"}
+    got = TestClient(app).get("/api/invoice-settings").json()
+    assert {k: got[k] for k in ("enabled", "storage", "staff_passcode", "advance_pct", "seller_state_code")} == {
+        "enabled": True, "storage": True, "staff_passcode": True, "advance_pct": "80", "seller_state_code": "04"}
+    assert slab_keys(got["gst_slab_groups"]) == SLAB_KEYS
+    assert got["gst_field_defaults"] == {"payment_terms": "Advance", "transport": "Self", "station": "Chandigarh"}
+    assert len(got["hsn_codes"]) == 27 and set(got["hsn_codes"].values()) == {""}  # blank until filled in
+    assert "gst_options" not in got
     assert TestClient(unsaved_app).get("/api/invoice-settings").json()["storage"] is False
     off = create_app(dataclasses.replace(get_settings(), staff_passcode=None, site_password=None))
     assert TestClient(off).get("/api/invoice-settings").json()["enabled"] is False

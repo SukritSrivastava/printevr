@@ -1,30 +1,40 @@
-"""Create invoices and record payments (BRD-cart-invoice FR-P7, 8.2, 8.3).
+"""Create quotations and invoices and record payments (BRD-cart-invoice FR-P7, 8.2, 8.3).
 
-Validate -> re-price catalogue lines -> check payments -> bill number -> save -> render.
-Stored invoices are never re-priced: downloads render from the stored JSON.
+Validate -> re-price catalogue lines -> check payments -> number -> save -> render.
+Stored documents are never re-priced: downloads render from the stored JSON.
+
+Three series, each numbered on its own: quotation, non_gst (the Printevr invoice, which
+continues the existing invoice numbers) and gst (BASTTA GST invoice).
 """
 import logging
 import threading
 from dataclasses import dataclass
 from decimal import Decimal
 
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from ..catalogue import Catalogue
+from ..models import CalculateRequest
 from ..quote import QuoteError
 from . import fmt, gst
 from .config import InvoiceConfig
 from .from_quote import quote_with_drafts
-from .models import CartLine, InvoiceCreate, InvoiceDocument, Payment, PaymentCreate, TaxLine
+from .models import CartLine, Customer, InvoiceCreate, InvoiceDocument, Payment, PaymentCreate, TaxLine
 from .money import Money, Overpaid, compute, line_subtotal
-from .render import doc_components, document_money, render
-from .store import InvoiceRow, Store, utcnow
+from .render import doc_components, document_money, render_document
+from .store import Store, utcnow
 
 log = logging.getLogger("printevr.invoice")
 
 BILL_NO_RETRIES = 3
 # SQLite serialises writers anyway; this keeps "max + 1" and the insert together in one process.
 _write_lock = threading.Lock()
+
+BILLING_TYPES = {"non_gst": "without_gst", "gst": "gst", "quotation": "quotation"}
+# A quotation has no payment state; this is what its row and download header say instead.
+QUOTATION_STATUS = "issued"
+NAMES = {"quotation": "Quotation", "non_gst": "Invoice", "gst": "GST invoice"}
 
 
 class InvoiceError(Exception):
@@ -46,14 +56,27 @@ class Rendered:
     # What the email lists: the document as printed and its money.
     doc: InvoiceDocument | None = None
     money: Money | None = None
+    series: str = "non_gst"
 
 
 def _validation(message: str, **details) -> InvoiceError:
     return InvoiceError("VALIDATION_ERROR", message, 422, details)
 
 
+def _not_found(series: str, bill_no: int) -> InvoiceError:
+    return InvoiceError("NOT_FOUND", f"No {NAMES[series].lower()} with number {bill_no}", 404)
+
+
 def _dec(value) -> Decimal:
     return Decimal(str(value))
+
+
+def series_start(cfg: InvoiceConfig, series: str) -> int:
+    if series == "quotation":
+        return int(cfg.quotation["quote_no_start"])
+    if series == "gst":
+        return int(cfg.gst_invoice["bill_no_start"])
+    return cfg.bill_no_start
 
 
 # ---------------------------------------------------------------- re-pricing
@@ -131,30 +154,85 @@ def _plain_qty(q: Decimal) -> int | float:
     return int(q) if q == q.to_integral_value() else float(q)
 
 
+# ---------------------------------------------------------------- checks
+
+
+def check_request(cfg: InvoiceConfig, body: InvoiceCreate) -> gst.GstSlab | None:
+    """What kind of document this is, and that its parts fit together. Returns the GST slab
+    for a GST invoice, None for anything else.
+
+    400 INVALID_GST_SLAB: a GST invoice without a (known) slab, or a slab on anything else.
+    """
+    if body.document_type == "quotation":
+        if body.gst_slab:
+            raise _slab_error("A GST slab only applies to a GST invoice, not a quotation", cfg)
+        if body.print_mode or body.payments:
+            raise _validation("A quotation has no paid or unpaid state", field="print_mode")
+        return None
+    if body.bill_type is None:
+        raise _validation("Choose a bill type: Non-GST invoice or GST invoice", field="bill_type")
+    if body.print_mode is None:
+        raise _validation("Choose Print (Unpaid as of now) or Print (Paid)", field="print_mode")
+    if body.print_mode == "unpaid" and body.payments:
+        raise _validation("Print (Unpaid as of now) takes no payments", field="payments")
+    if body.print_mode == "paid" and not body.payments:
+        raise _validation("Print (Paid) needs at least one payment", field="payments")
+    if body.bill_type == "non_gst":
+        if body.gst_slab:
+            raise _slab_error("A GST slab only applies to a GST invoice, not a Non-GST invoice", cfg)
+        try:
+            Customer.model_validate(body.customer.model_dump())
+        except ValidationError as exc:
+            fields = sorted({str(e["loc"][0]) for e in exc.errors()})
+            raise _validation("Fill in Ship To: business name, address and phone", fields=fields) from None
+        return None
+    try:
+        slab = gst.find_slab(cfg.gst_slabs, body.gst_slab)
+    except gst.InvalidGstOption as exc:
+        raise _slab_error(str(exc), cfg) from None
+    if body.gst is None or not body.gst.buyer.name.strip():
+        raise _validation("Enter the buyer's name for the GST invoice", field="gst.buyer.name")
+    return slab
+
+
+def _slab_error(message: str, cfg: InvoiceConfig) -> InvoiceError:
+    return InvoiceError("INVALID_GST_SLAB", message, 400, {"field": "gst_slab", "allowed": [s.key for s in cfg.gst_slabs]})
+
+
 # ---------------------------------------------------------------- helpers
 
 
-def gst_option(cfg: InvoiceConfig, body: InvoiceCreate) -> gst.GstOption | None:
-    """The chosen GST option for With GST billing (400 if missing or unknown); None without GST."""
-    if body.billing_type != "with_gst":
+def _product_id(cat: Catalogue, req: CalculateRequest | None) -> str | None:
+    if req is None:
         return None
-    try:
-        return gst.find(cfg.gst_options, body.gst_option)
-    except gst.InvalidGstOption as exc:
-        raise InvoiceError(
-            "INVALID_GST_OPTION", str(exc), 400, {"field": "gst_option", "allowed": [o.key for o in cfg.gst_options]}
-        ) from None
+    if req.item_id:
+        item = cat.item(req.item_id)
+        return item.product_id if item else None
+    return req.product_id
 
 
-def _gst_record(option: gst.GstOption | None, m: Money) -> dict | None:
-    """What is stored with the invoice: the option chosen and each tax row as issued."""
-    if option is None:
+def with_hsn(cat: Catalogue, lines: list[CartLine]) -> list[CartLine]:
+    """GST invoices: a line without its own HSN code takes its product's (an add-on, its article's)."""
+    by_id = {l.id: l for l in lines if l.id}
+    out = []
+    for line in lines:
+        if line.hsn_code is None:
+            source = by_id.get(line.parent_id or "") if line.source == "addon" else line
+            product = cat.product(_product_id(cat, source.calc_request) or "") if source else None
+            line = line.model_copy(update={"hsn_code": (product.hsn_code if product else "") or ""})
+        out.append(line)
+    return out
+
+
+def _gst_record(slab: gst.GstSlab | None, m: Money) -> dict | None:
+    """What is stored with a GST invoice: the slab chosen and each tax row as issued."""
+    if slab is None:
         return None
     taxes = [TaxLine(name=t.name, rate=t.rate, amount=t.amount).model_dump(mode="json") for t in m.taxes]
-    return {"option": option.key, "taxes": taxes}
+    return {"option": slab.key, "taxes": taxes}
 
 
-def _money(doc_lines: list[CartLine], components, cfg: InvoiceConfig, payments: list[Payment]) -> Money:
+def _money(doc_lines: list[CartLine], components, cfg: InvoiceConfig, payments: list) -> Money:
     subtotals = [line_subtotal(l.quantity, l.unit_price) for l in doc_lines]
     try:
         return compute(subtotals, components, cfg.advance_pct, [p.amount for p in payments])
@@ -167,34 +245,53 @@ def _money(doc_lines: list[CartLine], components, cfg: InvoiceConfig, payments: 
         ) from None
 
 
-def document(row: InvoiceRow) -> InvoiceDocument:
+def _business_name(series: str, body: InvoiceCreate) -> str:
+    if series == "gst" and body.gst is not None:
+        return body.gst.buyer.name
+    return body.customer.business_name
+
+
+def _status(series: str, m: Money) -> str:
+    return QUOTATION_STATUS if series == "quotation" else m.status
+
+
+def document(row, series: str = "non_gst") -> InvoiceDocument:
     record = row.gst or {}
     return InvoiceDocument.model_validate(
         {
+            "series": series,
             "bill_no": row.bill_no,
             "invoice_date": row.invoice_date,
-            "billing_type": row.billing_type,
+            "billing_type": row.billing_type if series == "non_gst" else "without_gst",
             "gst_option": record.get("option"),
             "taxes": record.get("taxes") or [],
             "customer": row.customer,
+            "gst": getattr(row, "details", None),
             "lines": row.lines,
             "payments": row.payments,
             "saving_amount": row.saving_amount,
-            "salesperson": row.salesperson,
+            "salesperson": getattr(row, "salesperson", None),
         }
     )
 
 
-def _rendered(row: InvoiceRow, cfg: InvoiceConfig) -> Rendered:
-    doc = document(row)
-    name = fmt.filename(cfg.filename, row.bill_no, row.business_name, cfg.status_labels[row.status])
+def filename(cfg: InvoiceConfig, series: str, bill_no: int, business: str, status: str) -> str:
+    if series == "quotation":
+        return fmt.filename(cfg.quotation["filename"], bill_no, business, "")
+    template = cfg.gst_invoice["filename"] if series == "gst" else cfg.filename
+    return fmt.filename(template, bill_no, business, cfg.status_labels[status])
+
+
+def _rendered(row, cfg: InvoiceConfig, series: str) -> Rendered:
+    doc = document(row, series)
     return Rendered(
-        bill_no=row.bill_no, status=row.status, filename=name, pdf=render(doc, cfg), business_name=row.business_name,
-        doc=doc, money=document_money(doc, cfg),
+        bill_no=row.bill_no, status=row.status, filename=filename(cfg, series, row.bill_no, row.business_name, row.status),
+        pdf=render_document(doc, cfg), business_name=row.business_name, doc=doc, money=document_money(doc, cfg),
+        series=series,
     )
 
 
-def _event_detail(row: InvoiceRow) -> dict:
+def _event_detail(row) -> dict:
     return {
         "version": row.version,
         "total": str(row.total),
@@ -210,30 +307,33 @@ def _payment_json(p: Payment | PaymentCreate) -> dict:
     return data
 
 
-def row_summary(row: InvoiceRow) -> dict:
+def row_summary(row, series: str = "non_gst") -> dict:
+    record = row.gst or {}
     return {
+        "series": series,
         "bill_no": row.bill_no,
         "invoice_date": row.invoice_date.isoformat(),
         "business_name": row.business_name,
         "billing_type": row.billing_type,
+        "gst_slab": record.get("option") if series == "gst" else None,
         "total": format(row.total, "f"),
         "payable": format(row.payable, "f"),
         "received": format(row.received, "f"),
         "status": row.status,
         "version": row.version,
-        "salesperson": row.salesperson,
     }
 
 
-def row_detail(row: InvoiceRow) -> dict:
+def row_detail(row, series: str = "non_gst") -> dict:
     return {
-        **row_summary(row),
+        **row_summary(row, series),
         "customer": row.customer,
         "lines": row.lines,
         "payments": row.payments,
         "saving_amount": format(row.saving_amount, "f") if row.saving_amount is not None else None,
         "gst_amount": format(row.gst_amount, "f"),
         "gst": row.gst,
+        "details": getattr(row, "details", None),
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
     }
@@ -242,82 +342,97 @@ def row_detail(row: InvoiceRow) -> dict:
 # ---------------------------------------------------------------- operations
 
 
-def next_bill_no(store: Store, cfg: InvoiceConfig) -> int:
+def next_bill_no(store: Store, cfg: InvoiceConfig, series: str = "non_gst") -> int:
     with store.session() as s:
-        return store.next_bill_no(s, cfg.bill_no_start)
+        return store.next_bill_no(s, series_start(cfg, series), series)
 
 
-def _check_print_mode(body: InvoiceCreate) -> None:
-    if body.print_mode == "unpaid" and body.payments:
-        raise _validation("Print (Unpaid as of now) takes no payments", field="payments")
-    if body.print_mode == "paid" and not body.payments:
-        raise _validation("Print (Paid) needs at least one payment", field="payments")
+def next_numbers(store: Store, cfg: InvoiceConfig) -> dict[str, int]:
+    with store.session() as s:
+        return {series: store.next_bill_no(s, series_start(cfg, series), series) for series in NAMES}
+
+
+def _prepare(cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate):
+    """Checks, re-pricing and money shared by saved and unsaved documents."""
+    series = body.series
+    slab = check_request(cfg, body)
+    lines = reprice(cat, cfg, body.lines)
+    if series == "gst":
+        lines = with_hsn(cat, lines)
+    payments = [Payment(**p.model_dump(exclude={"recorded_at"})) for p in body.payments]
+    m = _money(lines, slab.components if slab else (), cfg, payments)
+    return series, slab, lines, payments, m
 
 
 def create_unsaved(cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> Rendered:
     """No database: the same checks and PDF as create(), but nothing is stored.
 
-    The server can't count bill numbers without storage, so the client must send one.
+    The server can't count numbers without storage, so the client must send one.
     """
-    _check_print_mode(body)
+    check_request(cfg, body)
     if body.bill_no is None:
-        raise _validation("Enter a Bill No", field="bill_no")
-    option = gst_option(cfg, body)
-    lines = reprice(cat, cfg, body.lines)
-    payments = [Payment(**p.model_dump(exclude={"recorded_at"})) for p in body.payments]
-    m = _money(lines, option.components if option else (), cfg, payments)
-    record = _gst_record(option, m) or {}
+        raise _validation(f"Enter a {'Quote No' if body.series == 'quotation' else 'Bill No'}", field="bill_no")
+    series, slab, lines, payments, m = _prepare(cat, cfg, body)
+    record = _gst_record(slab, m) or {}
     doc = InvoiceDocument(
+        series=series,
         bill_no=body.bill_no,
         invoice_date=body.invoice_date,
-        billing_type=body.billing_type,
         gst_option=record.get("option"),
         taxes=record.get("taxes") or [],
         customer=body.customer,
+        gst=body.gst if series == "gst" else None,
         lines=lines,
         payments=payments,
         saving_amount=body.saving_amount if body.saving_amount else None,
-        salesperson=body.salesperson,
     )
-    name = fmt.filename(cfg.filename, body.bill_no, body.customer.business_name, cfg.status_labels[m.status])
+    business = _business_name(series, body)
+    status = _status(series, m)
     log.info(
-        "invoice rendered (not stored) bill_no=%s lines=%s total=%s gst_option=%s gst=%s payable=%s received=%s status=%s salesperson=%r",
-        body.bill_no, len(lines), m.total, option.key if option else None, m.gst, m.payable, m.received, m.status, body.salesperson,
+        "%s rendered (not stored) no=%s lines=%s total=%s gst_slab=%s gst=%s payable=%s received=%s status=%s",
+        series, body.bill_no, len(lines), m.total, slab.key if slab else None, m.gst, m.payable, m.received, status,
     )
     return Rendered(
-        bill_no=body.bill_no, status=m.status, filename=name, pdf=render(doc, cfg), business_name=body.customer.business_name,
-        doc=doc, money=m,
+        bill_no=body.bill_no, status=status, filename=filename(cfg, series, body.bill_no, business, status),
+        pdf=render_document(doc, cfg), business_name=business, doc=doc, money=document_money(doc, cfg), series=series,
     )
 
 
 def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> Rendered:
-    _check_print_mode(body)
-    option = gst_option(cfg, body)
-    lines = reprice(cat, cfg, body.lines)
-    m = _money(lines, option.components if option else (), cfg, body.payments)
+    series, slab, lines, _, m = _prepare(cat, cfg, body)
     payments = [_payment_json(p) for p in body.payments]
+    row_class = store.row_class(series)
+    start = series_start(cfg, series)
+    label = "Quote No" if series == "quotation" else "Bill No"
 
-    def new_row(bill_no: int) -> InvoiceRow:
+    def new_row(bill_no: int):
         now = utcnow()
-        return InvoiceRow(
+        extra = {"details": body.gst.model_dump(mode="json")} if series == "gst" else {}
+        return row_class(
             bill_no=bill_no,
             invoice_date=body.invoice_date,
-            billing_type=body.billing_type,
-            business_name=body.customer.business_name,
+            billing_type=BILLING_TYPES[series],
+            business_name=_business_name(series, body),
             customer=body.customer.model_dump(mode="json"),
             lines=[l.model_dump(mode="json") for l in lines],
             payments=payments,
             saving_amount=body.saving_amount if body.saving_amount else None,
             total=m.total,
             gst_amount=m.gst,
-            gst=_gst_record(option, m),
-            salesperson=body.salesperson,
+            gst=_gst_record(slab, m),
             payable=m.payable,
             received=m.received,
-            status=m.status,
+            status=_status(series, m),
             version=1,
             created_at=now,
             updated_at=now,
+            **extra,
+        )
+
+    def taken(s) -> InvoiceError:
+        return InvoiceError(
+            "BILL_NO_TAKEN", f"{label} {body.bill_no} is already used", 409,
+            {"next_bill_no": store.next_bill_no(s, start, series), "series": series},
         )
 
     with _write_lock:
@@ -325,19 +440,15 @@ def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate
         for _ in range(BILL_NO_RETRIES + 1):
             with store.session() as s:
                 if body.bill_no is not None:
-                    if store.exists(s, body.bill_no):
-                        raise InvoiceError(
-                            "BILL_NO_TAKEN",
-                            f"Bill No {body.bill_no} is already used",
-                            409,
-                            {"next_bill_no": store.next_bill_no(s, cfg.bill_no_start)},
-                        )
+                    if store.exists(s, body.bill_no, series):
+                        raise taken(s)
                     bill_no = body.bill_no
                 else:
-                    bill_no = store.next_bill_no(s, cfg.bill_no_start)
+                    bill_no = store.next_bill_no(s, start, series)
                 candidate = new_row(bill_no)
                 s.add(candidate)
-                store.add_event(s, bill_no, "created", _event_detail(candidate))
+                store.mark_issued(s, series, bill_no)
+                store.add_event(s, bill_no, "created", _event_detail(candidate), series)
                 try:
                     s.commit()
                     row = candidate
@@ -345,30 +456,27 @@ def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate
                 except IntegrityError:
                     s.rollback()
                     if body.bill_no is not None:
-                        raise InvoiceError(
-                            "BILL_NO_TAKEN",
-                            f"Bill No {body.bill_no} is already used",
-                            409,
-                            {"next_bill_no": store.next_bill_no(s, cfg.bill_no_start)},
-                        ) from None
+                        raise taken(s) from None
         if row is None:
-            raise InvoiceError("BILL_NO_CONFLICT", "Couldn't assign a bill number - try again", 409)
+            raise InvoiceError("BILL_NO_CONFLICT", f"Couldn't assign a {label} - try again", 409)
 
     log.info(
-        "invoice created bill_no=%s lines=%s total=%s payable=%s received=%s status=%s salesperson=%r",
-        row.bill_no, len(lines), row.total, row.payable, row.received, row.status, row.salesperson,
+        "%s created no=%s lines=%s total=%s payable=%s received=%s status=%s",
+        series, row.bill_no, len(lines), row.total, row.payable, row.received, row.status,
     )
-    return _rendered(row, cfg)
+    return _rendered(row, cfg, series)
 
 
-def add_payment(store: Store, cfg: InvoiceConfig, bill_no: int, payment: PaymentCreate) -> Rendered:
+def add_payment(store: Store, cfg: InvoiceConfig, bill_no: int, payment: PaymentCreate, series: str = "non_gst") -> Rendered:
+    if series == "quotation":
+        raise _validation("A quotation has no payments", field="series")
     with _write_lock, store.session() as s:
-        row = store.get(s, bill_no)
+        row = store.get(s, bill_no, series)
         if row is None:
-            raise InvoiceError("NOT_FOUND", f"No invoice with Bill No {bill_no}", 404)
+            raise _not_found(series, bill_no)
         if row.status == "paid":
-            raise InvoiceError("ALREADY_PAID", f"Invoice {bill_no} is already paid in full", 422)
-        doc = document(row)
+            raise InvoiceError("ALREADY_PAID", f"{NAMES[series]} {bill_no} is already paid in full", 422)
+        doc = document(row, series)
         payments = [*doc.payments, Payment(**payment.model_dump())]
         m = _money(doc.lines, doc_components(doc), cfg, payments)
         row.payments = [*row.payments, _payment_json(payment)]
@@ -376,43 +484,52 @@ def add_payment(store: Store, cfg: InvoiceConfig, bill_no: int, payment: Payment
         row.status = m.status
         row.version += 1
         row.updated_at = utcnow()
-        store.add_event(s, bill_no, "payment_added", _event_detail(row))
+        store.add_event(s, bill_no, "payment_added", _event_detail(row), series)
         s.commit()
-    log.info("invoice payment bill_no=%s received=%s status=%s version=%s", bill_no, row.received, row.status, row.version)
-    return _rendered(row, cfg)
+    log.info("%s payment no=%s received=%s status=%s version=%s", series, bill_no, row.received, row.status, row.version)
+    return _rendered(row, cfg, series)
 
 
-def delete(store: Store, bill_no: int) -> dict:
-    """Removes the invoice and its events: nothing about it stays in the database."""
+def delete(store: Store, bill_no: int, series: str = "non_gst") -> dict:
+    """Removes the document and its events: nothing about it stays in the database.
+
+    Its number is not handed out again (document_counters keeps the highest issued).
+    """
     with _write_lock, store.session() as s:
-        row = store.get(s, bill_no)
+        row = store.get(s, bill_no, series)
         if row is None:
-            raise InvoiceError("NOT_FOUND", f"No invoice with Bill No {bill_no}", 404)
-        store.delete(s, row)
+            raise _not_found(series, bill_no)
+        store.delete(s, row, series)
         s.commit()
-    log.info("invoice deleted bill_no=%s", bill_no)
-    return {"deleted": bill_no}
+    log.info("%s deleted no=%s", series, bill_no)
+    return {"deleted": bill_no, "series": series}
 
 
-def download(store: Store, cfg: InvoiceConfig, bill_no: int) -> Rendered:
+def download(store: Store, cfg: InvoiceConfig, bill_no: int, series: str = "non_gst") -> Rendered:
     with store.session() as s:
-        row = store.get(s, bill_no)
+        row = store.get(s, bill_no, series)
         if row is None:
-            raise InvoiceError("NOT_FOUND", f"No invoice with Bill No {bill_no}", 404)
-        store.add_event(s, bill_no, "downloaded", {"version": row.version})
+            raise _not_found(series, bill_no)
+        store.add_event(s, bill_no, "downloaded", {"version": row.version}, series)
         s.commit()
-    return _rendered(row, cfg)
+    return _rendered(row, cfg, series)
 
 
-def detail(store: Store, bill_no: int) -> dict:
+def detail(store: Store, bill_no: int, series: str = "non_gst") -> dict:
     with store.session() as s:
-        row = store.get(s, bill_no)
+        row = store.get(s, bill_no, series)
         if row is None:
-            raise InvoiceError("NOT_FOUND", f"No invoice with Bill No {bill_no}", 404)
-        return row_detail(row)
+            raise _not_found(series, bill_no)
+        return row_detail(row, series)
 
 
-def listing(store: Store, q: str | None, status: str | None, limit: int, offset: int) -> dict:
+def listing(store: Store, q: str | None, status: str | None, limit: int, offset: int, series: str = "non_gst") -> dict:
     with store.session() as s:
-        rows, total = store.search(s, q, status, limit, offset)
-        return {"invoices": [row_summary(r) for r in rows], "total": total, "limit": limit, "offset": offset}
+        rows, total = store.search(s, q, status, limit, offset, series)
+        return {
+            "series": series,
+            "invoices": [row_summary(r, series) for r in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }

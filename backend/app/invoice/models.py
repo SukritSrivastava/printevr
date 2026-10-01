@@ -15,16 +15,8 @@ MAX_PRICE = Decimal(10_000_000)
 Money = Annotated[Decimal, Field(ge=Decimal("0.01"), le=MAX_PRICE, decimal_places=2)]
 
 SALESPERSON_MAX = 100
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
-
-
-def clean_salesperson(v: str | None) -> str | None:
-    """One line of text: runs of spaces squeezed to one; tabs, newlines and other controls refused."""
-    if v is None:
-        return None
-    if _CONTROL.search(v):
-        raise ValueError("Salesperson name must be plain text on one line")
-    return " ".join(v.split()) or None
+HSN_MAX = 12
+GSTIN = re.compile(r"^[0-9]{2}[0-9A-Z]{13}$")
 
 
 class _Model(BaseModel):
@@ -76,6 +68,8 @@ class CartLine(_Model):
     unit_price: Money
     warnings: list[dict] = Field(default_factory=list, max_length=10)
     price_edited: bool = False
+    # GST invoices only. None = take the product's code from config/products.yaml; "" = none.
+    hsn_code: str | None = Field(default=None, max_length=HSN_MAX, pattern=r"^[0-9A-Za-z ]*$")
 
 
 class Customer(_Model):
@@ -88,6 +82,56 @@ class Customer(_Model):
     @classmethod
     def blank_is_none(cls, v: str | None) -> str | None:
         return v or None
+
+
+class CustomerInput(_Model):
+    """Ship To as typed. A quotation needs none of it; a Non-GST invoice checks it as Customer."""
+
+    business_name: str = Field(default="", max_length=60)
+    contact_person: str | None = Field(default=None, max_length=60)
+    address: str = Field(default="", max_length=140)
+    phone: str = Field(default="", max_length=20, pattern=r"^[0-9 +\-]*$")
+
+    @field_validator("contact_person")
+    @classmethod
+    def blank_is_none(cls, v: str | None) -> str | None:
+        return v or None
+
+
+class Party(_Model):
+    """Buyer or consignee on a GST invoice. The buyer's name is required (checked in service)."""
+
+    name: str = Field(default="", max_length=60)
+    address: str = Field(default="", max_length=140)
+    phone: str = Field(default="", max_length=20, pattern=r"^[0-9 +\-]*$")
+    gstin: str = Field(default="", max_length=15)
+
+    @field_validator("gstin")
+    @classmethod
+    def gstin_format(cls, v: str) -> str:
+        v = v.upper()
+        if v and not GSTIN.match(v):
+            raise ValueError("GSTIN is 15 characters: a 2-digit state code, then letters and digits")
+        return v
+
+
+class GstDetails(_Model):
+    """A GST invoice's own fields (BASTTA template). Blank text prints blank."""
+
+    buyer: Party
+    consignee_same: bool = True
+    consignee: Party | None = None
+    delivery_terms: str = Field(default="", max_length=60)
+    payment_terms: str = Field(default="", max_length=40)
+    po_date: date | None = None
+    gr_rr_no: str = Field(default="", max_length=30)
+    transport: str = Field(default="", max_length=40)
+    vehicle_no: str = Field(default="", max_length=20)
+    eway_bill_no: str = Field(default="", max_length=20)
+    station: str = Field(default="", max_length=40)
+
+    def shipped_to(self) -> Party:
+        return self.buyer if self.consignee_same or self.consignee is None else self.consignee
 
 
 class Payment(_Model):
@@ -106,48 +150,60 @@ class TaxLine(_Model):
     amount: Decimal = Field(ge=0, decimal_places=2)
 
 
-class InvoiceDocument(_Model):
-    """Everything the PDF shows. Stored invoices are rendered from this, never re-priced."""
+Series = Literal["quotation", "non_gst", "gst"]
 
+
+class InvoiceDocument(_Model):
+    """Everything the PDF shows. Stored documents are rendered from this, never re-priced.
+
+    `series` picks the template: quotation (Printevr quotation), non_gst (the Printevr invoice,
+    which every invoice saved before the series existed is) or gst (BASTTA GST invoice).
+    """
+
+    series: Series = "non_gst"
     bill_no: int = Field(ge=1, le=10_000_000)
     invoice_date: date
+    # Printevr invoices only; "with_gst" exists only on old records (legacy GST options).
     billing_type: Literal["without_gst", "with_gst"] = "without_gst"
-    # With GST billing: the option chosen and its tax rows as issued (config/invoice.yaml gst_options).
+    # Legacy With GST billing: the option chosen. GST invoices: the slab key (intra_18, ...).
     gst_option: str | None = None
+    # Tax rows as issued: a legacy option's, or CGST, UGST and IGST on a GST invoice.
     taxes: list[TaxLine] = Field(default_factory=list, max_length=4)
-    customer: Customer
+    customer: CustomerInput
+    gst: GstDetails | None = None
     lines: list[CartLine] = Field(min_length=1, max_length=MAX_LINES)
     payments: list[Payment] = Field(default_factory=list, max_length=20)
     saving_amount: Decimal | None = Field(default=None, ge=0, le=MAX_PRICE, decimal_places=2)
-    # Who generated the invoice. None on invoices saved before it was asked for.
+    # Read from old records only: never printed, no longer asked for.
     salesperson: str | None = Field(default=None, max_length=SALESPERSON_MAX)
-
-    @field_validator("salesperson")
-    @classmethod
-    def salesperson_text(cls, v: str | None) -> str | None:
-        return clean_salesperson(v)
 
 
 class InvoiceCreate(_Model):
+    """POST /api/invoices: a quotation, or an invoice of either bill type.
+
+    The combinations are checked in service.check_request (400 for GST slab mistakes).
+    """
+
+    document_type: Literal["quotation", "invoice"] = "invoice"
+    # Invoices only: non_gst = Printevr invoice, gst = BASTTA GST invoice. Ignored on a quotation.
+    bill_type: Literal["non_gst", "gst"] | None = None
+    # GST invoices only: a key from config/invoice.yaml gst_slabs.
+    gst_slab: str | None = Field(default=None, max_length=40)
+    gst: GstDetails | None = None
     bill_no: int | None = Field(default=None, ge=1, le=10_000_000)
     invoice_date: date
-    billing_type: Literal["without_gst", "with_gst"] = "without_gst"
-    # A key from config/invoice.yaml gst_options; required (400 otherwise) with GST billing.
-    gst_option: str | None = Field(default=None, max_length=40)
-    customer: Customer
+    customer: CustomerInput = Field(default_factory=CustomerInput)
     lines: list[CartLine] = Field(min_length=1, max_length=MAX_LINES)
     payments: list[Payment] = Field(default_factory=list, max_length=4)
     saving_amount: Decimal | None = Field(default=None, ge=0, le=MAX_PRICE, decimal_places=2)
-    print_mode: Literal["unpaid", "paid"]
-    salesperson: str = Field(min_length=1, max_length=SALESPERSON_MAX)
+    # Invoices only (Print (Unpaid as of now) / Print (Paid)); a quotation has no payment state.
+    print_mode: Literal["unpaid", "paid"] | None = None
 
-    @field_validator("salesperson")
-    @classmethod
-    def salesperson_text(cls, v: str) -> str:
-        cleaned = clean_salesperson(v)
-        if not cleaned:
-            raise ValueError("Enter the salesperson name")
-        return cleaned
+    @property
+    def series(self) -> str:
+        if self.document_type == "quotation":
+            return "quotation"
+        return "gst" if self.bill_type == "gst" else "non_gst"
 
 
 class PaymentCreate(_Model):

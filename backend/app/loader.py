@@ -273,6 +273,7 @@ def build_catalogue(rows: list[SheetRow], flag_status: dict[str, str], config: d
             notes=default_notes + list(cfg.get("notes") or []),
             invoice_title=cfg.get("invoice_title"),
             invoice_unit_label=cfg.get("invoice_unit_label"),
+            hsn_code=str(cfg.get("hsn_code") or "").strip(),
         )
     by_name = {p.name: p for p in products.values()}
 

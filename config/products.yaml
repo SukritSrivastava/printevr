@@ -1,6 +1,8 @@
 # Printevr product config — everything about a product except its prices.
 # Prices live only in data/Printevr_Pricing_Master_2025-26.xlsx.
 # `product` must match the Master "Product" column exactly.
+# `hsn_code` pre-fills the HSN CODE column on GST invoices (staff can edit it per line). Every
+# product starts blank on purpose: enter the real code from your GST records, never a guess.
 
 defaults:
   gst_rate: 0.18
@@ -32,6 +34,7 @@ products:
   # ---------- Ribbons ----------
   - product: Customised Ribbon - Single Colour
     id: ribbon_single_colour
+    hsn_code: ""
     invoice_title: Customised single colour ribbon printing
     sale_unit: roll
     yield_factor: 180
@@ -42,6 +45,7 @@ products:
     option_labels: { option_1: Roll length }
   - product: Customised Ribbon - Multi Colour
     id: ribbon_multi_colour
+    hsn_code: ""
     invoice_title: Customised multi colour ribbon printing
     sale_unit: roll
     yield_factor: 180
@@ -52,6 +56,7 @@ products:
     option_labels: { option_1: Roll length }
   - product: Customised Ribbon - Gold / Silver Foil
     id: ribbon_foil
+    hsn_code: ""
     invoice_title: Customised gold / silver foil ribbon printing
     sale_unit: roll
     yield_factor: 180
@@ -62,6 +67,7 @@ products:
     option_labels: { option_1: Roll length }
   - product: Customised Ribbon - Grosgrain (printed as 'Gross Grain')
     id: ribbon_grosgrain
+    hsn_code: ""
     invoice_title: Customised grosgrain ribbon printing
     display_name: Customised Ribbon - Grosgrain
     sale_unit: roll
@@ -73,6 +79,7 @@ products:
     option_labels: { option_1: Roll length }
   - product: Customised Ribbon - Cotton
     id: ribbon_cotton
+    hsn_code: ""
     invoice_title: Customised cotton ribbon printing
     sale_unit: roll
     yield_factor: 180
@@ -85,6 +92,7 @@ products:
   # ---------- Cloth labels ----------
   - product: Silk Cloth Labels
     id: labels_silk
+    hsn_code: ""
     invoice_title: Customised silk cloth label printing
     sale_unit: roll
     yield_factor: 2000          # decision D9: catalogue says 2,000-2,500
@@ -97,6 +105,7 @@ products:
     addons: [half_stitching]
   - product: Cotton Cloth Labels
     id: labels_cotton
+    hsn_code: ""
     invoice_title: Customised cotton cloth label printing
     sale_unit: roll
     yield_factor: 2000
@@ -111,6 +120,7 @@ products:
   # ---------- Outdoor ----------
   - product: Outdoor Branding
     id: outdoor_branding
+    hsn_code: ""
     invoice_title: Customised outdoor branding printing
     sale_unit: sq ft
     custom_dims: area_sqft      # UI multiplies width x height x pieces into quantity
@@ -122,6 +132,7 @@ products:
   # ---------- Visiting cards ----------
   - product: Standard Visiting Cards
     id: vc_standard
+    hsn_code: ""
     invoice_title: Customised standard visiting card printing
     sale_unit: card
     custom_dims: none
@@ -131,6 +142,7 @@ products:
     notes: [Custom card size / shape cut priced on discussion]
   - product: Raised Foil Visiting Cards
     id: vc_raised_foil
+    hsn_code: ""
     invoice_title: Customised raised foil visiting card printing
     sale_unit: card
     custom_dims: none
@@ -140,6 +152,7 @@ products:
     notes: [Custom card size / shape cut priced on discussion]
   - product: Textured Visiting Cards
     id: vc_textured
+    hsn_code: ""
     invoice_title: Customised textured visiting card printing
     sale_unit: card
     custom_dims: none
@@ -149,6 +162,7 @@ products:
     notes: [Custom card size / shape cut priced on discussion]
   - product: Spot UV Visiting Cards
     id: vc_spot_uv
+    hsn_code: ""
     invoice_title: Customised spot UV visiting card printing
     sale_unit: card
     custom_dims: none
@@ -160,6 +174,7 @@ products:
   # ---------- ID cards ----------
   - product: Customised ID Cards
     id: id_cards
+    hsn_code: ""
     invoice_title: Customised ID card printing
     sale_unit: pc
     custom_dims: none
@@ -168,6 +183,7 @@ products:
   # ---------- Butter paper ----------
   - product: Customised Butter Paper
     id: butter_paper
+    hsn_code: ""
     invoice_title: Customised butter paper printing
     sale_unit: sheet
     custom_dims: flat
@@ -178,6 +194,7 @@ products:
   # ---------- Sticker sheets ----------
   - product: Customised Sticker Sheets
     id: sticker_sheets
+    hsn_code: ""
     invoice_title: Customised sticker sheet printing
     sale_unit: sheet
     custom_dims: none
@@ -188,12 +205,14 @@ products:
   # ---------- Page 15 cards (flags F9, F10) ----------
   - product: Untitled cards (pg 15) - table A
     id: cards_pg15_a
+    hsn_code: ""
     invoice_title: Customised card printing
     sale_unit: card
     custom_dims: none
     option_labels: { option_1: Finish }
   - product: Untitled cards (pg 15) - table B
     id: cards_pg15_b
+    hsn_code: ""
     invoice_title: Customised card printing
     sale_unit: card
     custom_dims: none
@@ -202,6 +221,7 @@ products:
   # ---------- Paper printing ----------
   - product: Customised Paper Printing
     id: paper_printing
+    hsn_code: ""
     invoice_title: Customised paper printing
     sale_unit: sheet
     custom_dims: none
@@ -212,6 +232,7 @@ products:
   # ---------- Boxes ----------
   - product: Monocarton Boxes
     id: monocarton_boxes
+    hsn_code: ""
     invoice_title: Customised monocarton box printing
     sale_unit: box
     custom_dims: box
@@ -221,6 +242,7 @@ products:
     notes: ["Custom material, shape, inside printing, formations and inlets on discussion"]
   - product: Rigid Boxes
     id: rigid_boxes
+    hsn_code: ""
     invoice_title: Customised rigid box printing
     sale_unit: box
     custom_dims: box
@@ -230,6 +252,7 @@ products:
     notes: ["Custom material, shape, inside printing, formations and inlets on discussion"]
   - product: Corrugated Boxes
     id: corrugated_boxes
+    hsn_code: ""
     invoice_title: Customised corrugated box printing
     sale_unit: box
     custom_dims: box
@@ -241,6 +264,7 @@ products:
   # ---------- Carry bags: Small + Medium + Large pool together ----------
   - product: Small Carry Bags
     id: carry_bags_small
+    hsn_code: ""
     invoice_title: Customised carry bag printing
     sale_unit: bag
     custom_dims: bag
@@ -250,6 +274,7 @@ products:
       - Premium finishes (foiling, spot UV, embossing) charged separately
   - product: Medium Size Carry Bags
     id: carry_bags_medium
+    hsn_code: ""
     invoice_title: Customised carry bag printing
     sale_unit: bag
     custom_dims: bag
@@ -257,6 +282,7 @@ products:
     notes: *bag_notes
   - product: Large Size Carry Bags
     id: carry_bags_large
+    hsn_code: ""
     invoice_title: Customised carry bag printing
     sale_unit: bag
     custom_dims: bag
@@ -266,6 +292,7 @@ products:
   # ---------- Mailer bags ----------
   - product: Customised & Coloured Courier Bags
     id: courier_bags
+    hsn_code: ""
     invoice_title: Customised courier bag printing
     sale_unit: bag
     custom_dims: flat
@@ -274,6 +301,7 @@ products:
     notes: [Double colour print on discussion]
   - product: Customised & Coloured Frosted Bags
     id: frosted_bags
+    hsn_code: ""
     invoice_title: Customised frosted bag printing
     sale_unit: bag
     custom_dims: flat
@@ -282,6 +310,7 @@ products:
     notes: [Double colour print on discussion]
   - product: Customised & Coloured Kraft Mailer Bags
     id: kraft_mailer_bags
+    hsn_code: ""
     invoice_title: Customised kraft mailer bag printing
     sale_unit: bag
     custom_dims: flat

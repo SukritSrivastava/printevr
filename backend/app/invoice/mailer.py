@@ -1,7 +1,7 @@
 """Emails each new invoice and each recorded payment, with its PDF, to config/invoice.yaml `email.to`.
 
-The body names the salesperson and lists the sale (customer, bill, items, totals, payment
-status) as simple HTML with a plain-text copy. Every value typed by staff is escaped in the
+Non-GST and GST invoices are emailed; quotations are not. The body lists the sale (customer,
+bill, items, totals, payment status) as simple HTML with a plain-text copy. Every value typed by staff is escaped in the
 HTML. Sending is best effort: a mail failure is logged and never stops the invoice being
 saved or downloaded. Without SMTP_PASSWORD (or without the `email` block) nothing is sent.
 """
@@ -31,12 +31,12 @@ def compose(cfg: InvoiceConfig, r: Rendered, kind: Literal["new", "payment"]) ->
     email = cfg.email
     labels = email["labels"]
     doc, m = r.doc, r.money
-    salesperson = (doc.salesperson if doc else None) or labels["unknown_salesperson"]
     status = email["status_labels"][r.status]
-    fields = {"bill_no": r.bill_no, "business": r.business_name, "status": status, "salesperson": salesperson}
+    fields = {"bill_no": r.bill_no, "business": r.business_name, "status": status}
     rs = lambda value: labels["currency"] + fmt.amount(value)  # noqa: E731
+    suffix = "_gst" if r.series == "gst" else ""
 
-    facts = [(labels["generated_by"], salesperson), (labels["customer"], r.business_name), (labels["bill_no"], str(r.bill_no))]
+    facts = [(labels["customer"], r.business_name), (labels["bill_no"], str(r.bill_no))]
     items: list[tuple[str, str, str, str]] = []
     totals: list[tuple[str, str]] = []
     if doc:
@@ -53,10 +53,10 @@ def compose(cfg: InvoiceConfig, r: Rendered, kind: Literal["new", "payment"]) ->
             (labels["received"], rs(m.received)),
             (labels["pending"], rs(m.payable - m.received)),
         ]
-    intro = email[f"intro_{kind}"].format(**fields)
+    intro = email[f"intro_{kind}{suffix}"].format(**fields)
 
     msg = EmailMessage()
-    msg["Subject"] = _one_line(email[f"subject_{kind}"].format(**fields))
+    msg["Subject"] = _one_line(email[f"subject_{kind}{suffix}"].format(**fields))
     msg.set_content(_plain(intro, facts, labels, items, totals))
     msg.add_alternative(_html(intro, facts, labels, items, totals), subtype="html")
     msg.add_attachment(r.pdf, maintype="application", subtype="pdf", filename=r.filename)
@@ -112,7 +112,7 @@ def _html(intro, facts, labels, items, totals) -> str:
 def send(settings: Settings, cfg: InvoiceConfig | None, r: Rendered, kind: Literal["new", "payment"]) -> bool:
     """True when the email went out."""
     email = cfg.email if cfg else None
-    if not email or not settings.smtp_password:
+    if not email or not settings.smtp_password or r.series == "quotation":
         return False
     sender = settings.smtp_user or email["to"]
     try:

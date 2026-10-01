@@ -75,6 +75,8 @@ class Product:
     # Invoice text (docs/BRD-cart-invoice.md FR-C1); None = built from the name / sale unit.
     invoice_title: str | None = None
     invoice_unit_label: str | None = None
+    # GST invoices: pre-fills each line's HSN code (editable in the cart). Blank = none set.
+    hsn_code: str = ""
 
     @property
     def supports_custom(self) -> bool:

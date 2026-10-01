@@ -24,6 +24,7 @@ class Text:
     size: float
     align: str = "left"  # left | center | right (x is the anchor)
     char_space: float = 0.0  # extra space after each character (left-aligned text only)
+    skew: float = 0.0  # degrees of slant (a stand-in italic); left-aligned text only
 
 
 @dataclass(frozen=True)
@@ -216,35 +217,55 @@ def _spec_ops(spec, y: float) -> tuple[list[Op], float]:
     return ops, y + (len(lines) - 1) * L.SPEC_STEP
 
 
-def fit_title(title: str) -> tuple[list[str], float]:
+@dataclass(frozen=True)
+class Columns:
+    """Where a row's cells go. The defaults are the invoice's (layout.py); the quotation moves them."""
+
+    title_x: float = L.TITLE_X
+    title_max_x: float = L.TITLE_MAX_X
+    qty_center: float = L.QTY_CENTER
+    note_x: float = L.NOTE_X
+    note_max_x: float = L.NOTE_MAX_X
+    ref_center: float = L.REF_PRICE_CENTER
+    price_center: float = L.PRICE_CENTER
+    subtotal_center: float = L.SUBTOTAL_CENTER
+    rule_x: tuple[float, float] = L.ROW_RULE_X
+    # Shown in the market-price column when a row has none (None = leave it empty).
+    empty_ref: str | None = None
+
+
+INVOICE_COLUMNS = Columns()
+
+
+def fit_title(title: str, cols: Columns = INVOICE_COLUMNS) -> tuple[list[str], float]:
     text = fmt.caps(title)
-    max_w = L.TITLE_MAX_X - L.TITLE_X
+    max_w = cols.title_max_x - cols.title_x
     size = shrink_to_fit(text, L.BOLD, L.TITLE_SIZE, L.TITLE_MIN_SIZE, L.TITLE_SHRINK_STEP, max_w)
     if size is not None:
         return [text], size
     size = L.TITLE_MIN_SIZE
-    lines = wrap_runs([(text, L.BOLD)], size, L.TITLE_X, L.TITLE_X, L.TITLE_MAX_X)
+    lines = wrap_runs([(text, L.BOLD)], size, cols.title_x, cols.title_x, cols.title_max_x)
     return ["".join(t for _, t, _ in line) for line in lines], size
 
 
-def fit_note(text: str) -> tuple[list[str], float]:
+def fit_note(text: str, cols: Columns = INVOICE_COLUMNS) -> tuple[list[str], float]:
     text = fmt.caps(text)
-    max_w = L.NOTE_MAX_X - L.NOTE_X
+    max_w = cols.note_max_x - cols.note_x
     size = shrink_to_fit(text, L.BOLD, L.NOTE_SIZE, L.NOTE_MIN_SIZE, L.NOTE_SHRINK_STEP, max_w)
     if size is not None:
         return [text], size
     size = L.NOTE_MIN_SIZE
-    lines = wrap_runs([(text, L.BOLD)], size, L.NOTE_X, L.NOTE_X, L.NOTE_MAX_X)
+    lines = wrap_runs([(text, L.BOLD)], size, cols.note_x, cols.note_x, cols.note_max_x)
     return ["".join(t for _, t, _ in line) for line in lines], size
 
 
-def layout_row(line, pad_unit_price: bool = True) -> RowLayout:
-    """Section 7.4 for one cart line, with the row top at y = 0."""
+def layout_row(line, pad_unit_price: bool = True, cols: Columns = INVOICE_COLUMNS, title: str | None = None) -> RowLayout:
+    """Section 7.4 for one cart line, with the row top at y = 0. `title` replaces the line's own."""
     ops: list[Op] = []
-    titles, title_size = fit_title(line.title)
+    titles, title_size = fit_title(line.title if title is None else title, cols)
     first_title = L.TITLE_OFFSET
     for i, t in enumerate(titles):
-        ops.append(Text(L.TITLE_X, first_title + i * L.TITLE_LINE_STEP, t, L.BOLD, title_size))
+        ops.append(Text(cols.title_x, first_title + i * L.TITLE_LINE_STEP, t, L.BOLD, title_size))
     last_title = first_title + (len(titles) - 1) * L.TITLE_LINE_STEP
     lowest = last_title
 
@@ -259,23 +280,26 @@ def layout_row(line, pad_unit_price: bool = True) -> RowLayout:
         "price": fmt.unit_price(price, pad_unit_price),
         "subtotal": fmt.amount(line_subtotal(qty, price)),
     }
-    ops.append(Text(L.QTY_CENTER, nb, cells["quantity"], L.BOLD, L.NUM_SIZE, "center"))
+    ops.append(Text(cols.qty_center, nb, cells["quantity"], L.BOLD, L.NUM_SIZE, "center"))
     unit_y = nb + L.UNIT_LABEL_OFFSET
-    ops.append(Text(L.QTY_CENTER, unit_y, cells["unit"], L.REGULAR, L.UNIT_LABEL_SIZE, "center"))
+    ops.append(Text(cols.qty_center, unit_y, cells["unit"], L.REGULAR, L.UNIT_LABEL_SIZE, "center"))
     lowest = max(lowest, unit_y)
     middle = line.middle
     if middle.kind == "note":
-        note_lines, note_size = fit_note(middle.text)
+        note_lines, note_size = fit_note(middle.text, cols)
         for i, t in enumerate(note_lines):
             y = nb + L.NOTE_OFFSET + i * L.NOTE_LINE_STEP
-            ops.append(Text(L.NOTE_X, y, t, L.BOLD, note_size))
+            ops.append(Text(cols.note_x, y, t, L.BOLD, note_size))
             lowest = max(lowest, y)
         cells["middle"] = " ".join(note_lines)
     elif middle.kind == "reference_price":
         cells["middle"] = fmt.unit_price(Decimal(str(middle.amount)), pad_unit_price)
-        ops.append(Text(L.REF_PRICE_CENTER, nb, cells["middle"], L.REGULAR, L.NUM_SIZE, "center"))
-    ops.append(Text(L.PRICE_CENTER, nb, cells["price"], L.REGULAR, L.NUM_SIZE, "center"))
-    ops.append(Text(L.SUBTOTAL_CENTER, nb, cells["subtotal"], L.BOLD, L.NUM_SIZE, "center"))
+        ops.append(Text(cols.ref_center, nb, cells["middle"], L.REGULAR, L.NUM_SIZE, "center"))
+    elif cols.empty_ref is not None:
+        cells["middle"] = cols.empty_ref
+        ops.append(Text(cols.ref_center, nb, cols.empty_ref, L.REGULAR, L.NUM_SIZE, "center"))
+    ops.append(Text(cols.price_center, nb, cells["price"], L.REGULAR, L.NUM_SIZE, "center"))
+    ops.append(Text(cols.subtotal_center, nb, cells["subtotal"], L.BOLD, L.NUM_SIZE, "center"))
     lowest = max(lowest, nb)
 
     # Specs, then customisations
@@ -298,7 +322,7 @@ def layout_row(line, pad_unit_price: bool = True) -> RowLayout:
         lowest = max(lowest, last)
 
     rule_y = lowest + L.ROW_RULE_GAP
-    ops.append(rule(rule_y, *L.ROW_RULE_X))
+    ops.append(rule(rule_y, *cols.rule_x))
     return RowLayout(ops=ops, height=rule_y, cells=cells)
 
 

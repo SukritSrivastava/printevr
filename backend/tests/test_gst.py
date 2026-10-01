@@ -1,4 +1,5 @@
-"""Selectable GST on With GST invoices (config/invoice.yaml gst_options)."""
+"""Legacy "With GST billing" options (config/invoice.yaml legacy_gst_options): invoices saved with
+them must reprint exactly as issued. New GST invoices use slabs (tests/test_quotation_gst.py)."""
 from decimal import Decimal
 
 import pytest
@@ -15,7 +16,10 @@ D = Decimal
 
 
 def option(key):
-    return gst.find(cfg().gst_options, key)
+    for o in cfg().legacy_gst_options:
+        if key and o.key == key:
+            return o
+    raise gst.InvalidGstOption(key)
 
 
 def taxes(taxable, key):
@@ -33,7 +37,7 @@ def pdf_lines(data: bytes) -> list[tuple[float, str]]:
 
 
 def test_options_in_order():
-    assert [(o.key, o.label) for o in cfg().gst_options] == [
+    assert [(o.key, o.label) for o in cfg().legacy_gst_options] == [
         ("gst_5", "5% GST"),
         ("gst_12", "12% GST"),
         ("gst_18", "18% GST"),
@@ -125,60 +129,26 @@ def test_legacy_with_gst_invoice_reprints_at_18():
     assert "GST @ 18%:26640" in texts
 
 
-# ---------------------------------------------------------------- API
+# ---------------------------------------------------------------- API: old records only
 
 
-def with_gst(client, key=..., **changes):
-    body = invoice_body([k1_line(client)], billing_type="with_gst", **changes)
-    if key is not ...:
-        body["gst_option"] = key
-    return body
+def test_api_no_longer_takes_with_gst_billing(client, auth):
+    """The old request shape (billing_type + gst_option) can't create invoices any more."""
+    body = invoice_body([k1_line(client)], bill_type=None, billing_type="with_gst", gst_option="gst_18")
+    r = client.post("/api/invoices", json=body, headers=auth)
+    assert r.status_code == 422 and r.json()["error"]["details"]["field"] == "bill_type"
 
 
-@pytest.mark.parametrize("key", [..., None, "gst_99"])
-def test_api_rejects_missing_or_invalid_key(client, auth, key):
-    r = client.post("/api/invoices", json=with_gst(client, key), headers=auth)
-    assert r.status_code == 400, r.text
-    err = r.json()["error"]
-    assert err["code"] == "INVALID_GST_OPTION" and err["details"]["field"] == "gst_option"
-    assert "gst_18" in err["details"]["allowed"]
+def test_old_with_gst_record_reprints_and_takes_payments(app, client, auth):
+    from .test_quotation_gst import legacy_row
 
-
-def test_api_rejects_invalid_key_without_storage(unsaved):
-    c, auth = unsaved
-    r = c.post("/api/invoices", json=with_gst(c, "gst_99", bill_no=19), headers=auth)
-    assert r.status_code == 400 and r.json()["error"]["code"] == "INVALID_GST_OPTION"
-
-
-def test_api_without_gst_needs_no_key(client, auth):
-    r = client.post("/api/invoices", json=invoice_body([k1_line(client)]), headers=auth)
-    assert r.status_code == 201
-
-
-def test_api_stores_option_and_rows_and_reprints_them(app, client, auth):
-    # k1_line: 350 × 75 = 26250.00
-    r = client.post("/api/invoices", json=with_gst(client, "cgst_sgst_9_9"), headers=auth)
-    assert r.status_code == 201, r.text
-    [row], _ = rows(app)
-    assert row.gst == {"option": "cgst_sgst_9_9", "taxes": [
-        {"name": "CGST", "rate": "9", "amount": "2362.50"},
-        {"name": "SGST/UTGST", "rate": "9", "amount": "2362.50"}]}
-    assert (str(row.gst_amount), str(row.payable)) == ("4725.00", "30975.00")
-    printed = [t for _, t in pdf_lines(r.content)]
-    assert "CGST @ 9%:2362.50" in printed and "SGST/UTGST @ 9%:2362.50" in printed
-
-    # Reprint and a later payment render the stored rows, not today's config.
-    assert client.get("/api/invoices/19/pdf", headers=auth).content == r.content
-    pay = {"amount": "1000", "date": "2026-09-30", "mode": "upi"}
-    r2 = client.post("/api/invoices/19/payments", json=pay, headers=auth)
-    assert r2.status_code in (200, 201), r2.text
-    assert "SGST/UTGST @ 9%:2362.50" in [t for _, t in pdf_lines(r2.content)]
-    assert client.get("/api/invoices/19", headers=auth).json()["gst"]["option"] == "cgst_sgst_9_9"
-
-
-@pytest.mark.parametrize("mode", ["unpaid", "paid"])
-def test_api_print_unpaid_and_paid(client, auth, mode):
-    payments = [{"amount": "1000", "date": "2026-09-30", "mode": "upi", "note": None}] if mode == "paid" else None
-    r = client.post("/api/invoices", json=with_gst(client, "gst_18", print_mode=mode, payments=payments), headers=auth)
-    assert r.status_code == 201, r.text
-    assert "GST @ 18%:4725" in [t for _, t in pdf_lines(r.content)]
+    raw = legacy_row(app, "cgst_sgst_9_9")
+    no = raw["bill_no"]
+    first = client.get(f"/api/invoices/{no}/pdf", headers=auth)
+    printed = [t for _, t in pdf_lines(first.content)]
+    assert "CGST @ 9%:13320" in printed and "SGST/UTGST @ 9%:13320" in printed
+    assert client.get(f"/api/invoices/{no}/pdf", headers=auth).content == first.content
+    r = client.post(f"/api/invoices/{no}/payments", json={"amount": "1000", "date": "2026-09-30", "mode": "upi"}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert "SGST/UTGST @ 9%:13320" in [t for _, t in pdf_lines(r.content)]
+    assert client.get(f"/api/invoices/{no}", headers=auth).json()["gst"]["option"] == "cgst_sgst_9_9"

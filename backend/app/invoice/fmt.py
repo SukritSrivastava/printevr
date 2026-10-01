@@ -67,3 +67,30 @@ def filename(template: str, bill_no: int, business_name: str, status_label: str)
     """Invoice_18_Sogat-Jutti-Store_Part-paid.pdf: only letters, digits and hyphens in the business part."""
     business = re.sub(r"[^A-Za-z0-9]+", "-", business_name).strip("-") or "Customer"
     return template.format(bill_no=bill_no, business=business, status=status_label)
+
+
+def inr(value) -> str:
+    """Indian digit grouping, always two decimals: 1,800.00 · 1,23,456.50 · 0.00 (GST invoice)."""
+    d = money(Decimal(str(value)))
+    sign = "-" if d < 0 else ""
+    whole, paise = format(abs(d), "f").split(".")
+    if len(whole) > 3:
+        head, tail = whole[:-3], whole[-3:]
+        groups = []
+        while len(head) > 2:
+            groups.insert(0, head[-2:])
+            head = head[:-2]
+        if head:
+            groups.insert(0, head)
+        whole = ",".join(groups) + "," + tail
+    return f"{sign}{whole}.{paise}"
+
+
+def gst_date(d: date) -> str:
+    """01/10/2026 (GST invoice dates)."""
+    return f"{d.day:02d}/{d.month:02d}/{d.year}"
+
+
+def quote_date(d: date) -> str:
+    """01 OCT 2026 (as on the quotation template)."""
+    return f"{d.day:02d} {MONTHS[d.month - 1][:3].upper()} {d.year}"

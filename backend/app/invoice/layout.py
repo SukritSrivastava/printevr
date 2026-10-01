@@ -59,14 +59,6 @@ DATE_VALUE = (73.49, 78.22, REGULAR, 12.0)
 BILL_LABEL = (28.55, 96.23, REGULAR, 12.0)
 BILL_VALUE = (73.49, 96.23, REGULAR, 12.0)
 VALUE_PREFIX = ":  "
-# Salesperson: not on the reference. A third line at the same 18 pt step, still inside the
-# band. The label is wider than the Date/Bill No column, so the value follows it with the
-# same gap Bill No leaves before its colon (73.49 - 28.55 - width("Bill No")).
-SALES_LABEL = (28.55, 114.24, REGULAR, 12.0)
-SALES_VALUE_GAP = 5.78
-SALES_VALUE_MAX_X = 480.0  # clear of the asterisks in the band
-SALES_MIN_SIZE = 9.0  # a long name shrinks to this, then ends in "..."
-SALES_SHRINK_STEP = 0.25
 
 SHIP_TO_HEADING = (39.40, 143.39, REGULAR, 13.94, "SHIP TO")
 SHIP_TO_RULE = (39.4, 99.2, 144.2, 145.1)  # x0, x1, top, bottom
