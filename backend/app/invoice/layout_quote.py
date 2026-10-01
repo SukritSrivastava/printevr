@@ -8,7 +8,6 @@ file holds only what the quotation does differently. Item rows use the invoice's
 from . import layout as L
 
 BAND_IMAGE = L.ASSETS / "quotation" / "quotation_band.png"  # the invoice band with the pill left blank
-QR_IMAGE = L.ASSETS / "quotation" / "upi_qr.png"  # cut from the template's UPI image (the part it shows)
 
 # ---- title in the band's pill. The template's Agrandir isn't available: Montserrat, shrunk to fit.
 TITLE_CENTER_X = 296.3  # pill centre: (213.0 + 379.6) / 2
@@ -57,8 +56,7 @@ SUB_VALUE = (538.3, 621.97, L.REGULAR, 14.95)  # right edge
 SUB_VALUE_MIN_X = 481.0
 SUB_VALUE_MIN_SIZE = 11.0
 
-# ---- UPI block
-QR = (439.95, 658.29, 56.31, 56.27)  # x, top, width, height
+# ---- UPI block (text only; the template's QR code is left off)
 UPI_X = 407.27
 UPI_Y0 = 738.96
 UPI_STEP = 12.59

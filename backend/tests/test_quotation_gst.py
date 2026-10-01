@@ -427,3 +427,12 @@ def test_quotation_has_no_advance(client, auth):  # noqa: F811
 def test_advance_pct_must_be_a_percent(client, auth, bad):  # noqa: F811
     r = client.post("/api/invoices", json=invoice_body([k1_line(client)], advance_pct=bad), headers=auth)
     assert r.status_code == 422
+
+
+def test_quotation_prints_upi_details_without_a_qr_code(client, auth):  # noqa: F811
+    r = client.post("/api/invoices", json=quotation_body([k1_line(client)]), headers=auth)
+    with open_pdf(r.content) as pdf:
+        images = pdf.pages[0].images
+    assert len(images) == 2  # the band and the Printevr logo only
+    assert all(i["top"] < 160 for i in images)  # nothing down by the UPI block
+    assert "Here are my UPI details" in pdf_text(r.content)

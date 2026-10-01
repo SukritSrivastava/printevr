@@ -2,7 +2,7 @@
 
 The invoice's page (band, Date line, Ship To, From) with QUOTATION in the pill and Quote No;
 columns ITEM, QUANTITY, MARKET PRICE, DISCOUNTED PRICE, SUBTOTAL; then TOTAL, SUB TOTAL, the
-UPI block, the saving block and the footer notes. No tax rows, no payment terms.
+UPI details, the saving block and the footer notes. No tax rows, no payment terms.
 """
 from . import fmt
 from . import layout as L
@@ -154,8 +154,6 @@ def _totals_and_footer(doc: InvoiceDocument, cfg: InvoiceConfig, total) -> list[
         vsize = max(Q.SUB_VALUE_MIN_SIZE, round(vsize - 0.25, 2))
     ops.append(Text(vx, vy, amount, vfont, vsize, "right"))
 
-    qx, qtop, qw, qh = Q.QR
-    ops.append(Image(str(Q.QR_IMAGE), qx, qtop, qw, qh))
     font, size = Q.UPI_FONT
     for i, text in enumerate(q["upi_lines"]):
         ops.append(Text(Q.UPI_X, Q.UPI_Y0 + i * Q.UPI_STEP, text, font, size))
