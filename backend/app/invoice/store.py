@@ -18,6 +18,8 @@ from ..settings import ROOT
 
 AMOUNT = Numeric(12, 2, asdecimal=True)
 SERIES = ("non_gst", "gst", "quotation")
+# pg_advisory_xact_lock keys for numbering each series (any app-unique numbers do).
+SERIES_LOCK_BASE = 72_810_000
 
 
 class Base(DeclarativeBase):
@@ -166,6 +168,12 @@ class Store:
         counter = session.get(DocumentCounter, series)
         issued = max(highest or 0, counter.last_no if counter else 0)
         return max(issued + 1, start)
+
+    def lock_series(self, session: Session, series: str) -> None:
+        """Postgres: hold a lock on this series' numbering until the transaction ends, so
+        separate server instances number one at a time. SQLite has one writer anyway."""
+        if not self.is_sqlite:
+            session.execute(select(func.pg_advisory_xact_lock(SERIES_LOCK_BASE + SERIES.index(series))))
 
     def mark_issued(self, session: Session, series: str, bill_no: int) -> None:
         counter = session.get(DocumentCounter, series)

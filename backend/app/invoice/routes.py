@@ -30,23 +30,26 @@ from .store import Store
 
 log = logging.getLogger("printevr.invoice")
 
-EXPOSED_HEADERS = ["Content-Disposition", "X-Bill-No", "X-Invoice-Status", "X-Document-Series"]
+EXPOSED_HEADERS = [
+    "Content-Disposition", "X-Bill-No", "X-Invoice-Status", "X-Document-Series", "X-Job-Id", "X-Designer", "X-Assigned-At",
+]
 LOGIN_ATTEMPTS_PER_MINUTE = 5
 
 
 def pdf_response(r: Rendered, status: int = 200) -> Response:
-    return Response(
-        content=r.pdf,
-        status_code=status,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f"attachment; filename=\"{r.filename}\"; filename*=UTF-8''{quote(r.filename)}",
-            "X-Bill-No": str(r.bill_no),
-            "X-Invoice-Status": r.status,
-            "X-Document-Series": r.series,
-            "Cache-Control": "no-store",
-        },
-    )
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"{r.filename}\"; filename*=UTF-8''{quote(r.filename)}",
+        "X-Bill-No": str(r.bill_no),
+        "X-Invoice-Status": r.status,
+        "X-Document-Series": r.series,
+        "Cache-Control": "no-store",
+    }
+    if r.job:
+        # The designer goes in headers only, never on the PDF. Names are percent-encoded (UTF-8).
+        headers["X-Job-Id"] = str(r.job["id"])
+        headers["X-Designer"] = quote(r.job["designer_name"] or "")
+        headers["X-Assigned-At"] = r.job["assigned_at"]
+    return Response(content=r.pdf, status_code=status, media_type="application/pdf", headers=headers)
 
 
 def create_router(
@@ -215,4 +218,5 @@ def create_router(
 
     state["disabled_reason"] = disabled_reason
     state["guard"] = guard
+    state["get_store"] = get_store
     return router, state

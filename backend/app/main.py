@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse
 
 from . import auth
 from .catalogue import Catalogue
+from .designers.routes import PATHS as DESIGNER_PATHS
+from .designers.routes import create_router as designer_router
 from .loader import LoaderError, load
 from .models import CalculateRequest, LoginRequest
 from .invoice import config as invoice_config
@@ -158,7 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_methods=["GET", "POST", "DELETE"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["Content-Type", "X-Admin-Token", "Authorization"],
         expose_headers=EXPOSED_HEADERS,
     )
@@ -172,6 +174,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         login_limiter=RateLimiter(STAFF_LOGINS_PER_MINUTE),
     )
     app.include_router(router)
+    app.include_router(designer_router(app.state.invoices["get_store"], error))
 
     @app.middleware("http")
     async def invoicing_switch(request: Request, call_next):
@@ -183,7 +186,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 reason = app.state.invoices["disabled_reason"]()
                 if reason:
                     return error("INVOICING_DISABLED", reason, 503)
-            elif path.startswith("/api/invoices"):
+            elif path.startswith("/api/invoices") or path.startswith(DESIGNER_PATHS):
                 blocked = app.state.invoices["guard"](request)
                 if blocked:
                     return blocked

@@ -8,6 +8,7 @@ continues the existing invoice numbers) and gst (BASTTA GST invoice).
 """
 import logging
 import threading
+from contextlib import nullcontext
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -15,6 +16,8 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from ..catalogue import Catalogue
+from ..designers import service as designers
+from ..designers.models import JOB_SERIES
 from ..models import CalculateRequest
 from ..quote import QuoteError
 from . import fmt, gst
@@ -57,6 +60,8 @@ class Rendered:
     doc: InvoiceDocument | None = None
     money: Money | None = None
     series: str = "non_gst"
+    # The design job this invoice belongs to (designers.service.job_json), when there is one.
+    job: dict | None = None
 
 
 def _validation(message: str, **details) -> InvoiceError:
@@ -411,6 +416,51 @@ def create_unsaved(cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> R
     )
 
 
+def _assign_job(store: Store, s, row, series: str, lines: list[CartLine]) -> dict | None:
+    """Create (or find) the invoice's design job in the invoice's own transaction.
+
+    On Postgres it runs in a savepoint: if anything about the job fails, the invoice is still
+    saved and printed as before, and the failure is logged.
+    """
+    if not jobs_on(store, series):
+        return None
+    savepoint = s.begin_nested() if not store.is_sqlite else nullcontext()
+    try:
+        with savepoint:
+            job = designers.ensure_job(
+                s, series, row.bill_no, row.business_name, row.payable, designers.summarize_items(lines)
+            )
+            return designers.job_json(job, {job.designer_id: designers.designer_name(s, job.designer_id)})
+    except Exception:
+        if store.is_sqlite:
+            raise
+        log.exception("%s %s: design job not created", series, row.bill_no)
+        return None
+
+
+def jobs_on(store: Store, series: str) -> bool:
+    """Whether this series makes design jobs here. Call it before opening a write session the
+    first time: on SQLite it may create the tables, which waits for every open write."""
+    return series in JOB_SERIES and store.designers_available()
+
+
+def existing_job(store: Store, series: str, bill_no: int) -> dict | None:
+    """The invoice's design job, if it has one. Never creates one; never fails the caller."""
+    if series not in JOB_SERIES:
+        return None
+    try:
+        if not store.designers_available():
+            return None
+        with store.session() as s:
+            job = designers.find_job(s, series, bill_no)
+            if job is None:
+                return None
+            return designers.job_json(job, {job.designer_id: designers.designer_name(s, job.designer_id)})
+    except Exception:
+        log.exception("%s %s: couldn't read its design job", series, bill_no)
+        return None
+
+
 def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate) -> Rendered:
     series, slab, lines, _, m = _prepare(cat, cfg, body)
     payments = [_payment_json(p) for p in body.payments]
@@ -449,21 +499,27 @@ def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate
             {"next_bill_no": store.next_bill_no(s, start, series), "series": series},
         )
 
+    jobs_on(store, series)  # outside the transaction (see jobs_on)
     with _write_lock:
-        row = None
+        row = job = None
         for _ in range(BILL_NO_RETRIES + 1):
             with store.session() as s:
+                # Other server instances wait here until this transaction ends, so two of
+                # them never pick the same number (_write_lock only covers this process).
+                store.lock_series(s, series)
                 if body.bill_no is not None:
                     if store.exists(s, body.bill_no, series):
                         raise taken(s)
                     bill_no = body.bill_no
                 else:
                     bill_no = store.next_bill_no(s, start, series)
-                candidate = new_row(bill_no)
-                s.add(candidate)
-                store.mark_issued(s, series, bill_no)
-                store.add_event(s, bill_no, "created", _event_detail(candidate), series)
                 try:
+                    candidate = new_row(bill_no)
+                    s.add(candidate)
+                    store.mark_issued(s, series, bill_no)  # its query flushes the insert: inside the try
+                    store.add_event(s, bill_no, "created", _event_detail(candidate), series)
+                    s.flush()  # a taken number fails here at the latest, before the job is made
+                    job = _assign_job(store, s, candidate, series, lines)
                     s.commit()
                     row = candidate
                     break
@@ -478,7 +534,9 @@ def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate
         "%s created no=%s lines=%s total=%s payable=%s received=%s status=%s",
         series, row.bill_no, len(lines), row.total, row.payable, row.received, row.status,
     )
-    return _rendered(row, cfg, series)
+    rendered = _rendered(row, cfg, series)
+    rendered.job = job
+    return rendered
 
 
 def add_payment(store: Store, cfg: InvoiceConfig, bill_no: int, payment: PaymentCreate, series: str = "non_gst") -> Rendered:
@@ -501,7 +559,9 @@ def add_payment(store: Store, cfg: InvoiceConfig, bill_no: int, payment: Payment
         store.add_event(s, bill_no, "payment_added", _event_detail(row), series)
         s.commit()
     log.info("%s payment no=%s received=%s status=%s version=%s", series, bill_no, row.received, row.status, row.version)
-    return _rendered(row, cfg, series)
+    rendered = _rendered(row, cfg, series)
+    rendered.job = existing_job(store, series, bill_no)
+    return rendered
 
 
 def delete(store: Store, bill_no: int, series: str = "non_gst") -> dict:
@@ -509,11 +569,14 @@ def delete(store: Store, bill_no: int, series: str = "non_gst") -> dict:
 
     Its number is not handed out again (document_counters keeps the highest issued).
     """
+    with_jobs = jobs_on(store, series)
     with _write_lock, store.session() as s:
         row = store.get(s, bill_no, series)
         if row is None:
             raise _not_found(series, bill_no)
         store.delete(s, row, series)
+        if with_jobs:
+            designers.delete_jobs_for_invoice(s, series, bill_no)
         s.commit()
     log.info("%s deleted no=%s", series, bill_no)
     return {"deleted": bill_no, "series": series}
@@ -526,7 +589,9 @@ def download(store: Store, cfg: InvoiceConfig, bill_no: int, series: str = "non_
             raise _not_found(series, bill_no)
         store.add_event(s, bill_no, "downloaded", {"version": row.version}, series)
         s.commit()
-    return _rendered(row, cfg, series)
+    rendered = _rendered(row, cfg, series)
+    rendered.job = existing_job(store, series, bill_no)
+    return rendered
 
 
 def detail(store: Store, bill_no: int, series: str = "non_gst") -> dict:
