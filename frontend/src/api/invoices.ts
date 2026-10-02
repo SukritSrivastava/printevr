@@ -6,6 +6,7 @@ import type {
   InvoiceSettings,
   InvoicePdf,
   InvoiceStatus,
+  JobAssignment,
   NextBillNo,
   PaymentInput,
   Series,
@@ -59,7 +60,8 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
   return response
 }
 
-async function json<T>(path: string, init?: RequestInit): Promise<T> {
+/** JSON from a staff route (the designer routes use it too). */
+export async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await send(path, init)
   try {
     return (await response.json()) as T
@@ -74,7 +76,20 @@ async function pdf(path: string, init?: RequestInit): Promise<InvoicePdf> {
   const status = (response.headers.get('X-Invoice-Status') ?? 'unpaid') as InvoiceStatus
   const series = (response.headers.get('X-Document-Series') ?? 'non_gst') as Series
   const filename = filenameFromDisposition(response.headers.get('Content-Disposition'), `Invoice_${billNo}.pdf`)
-  return { blob: await response.blob(), filename, billNo, status, series }
+  return { blob: await response.blob(), filename, billNo, status, series, assignment: assignment(response.headers) }
+}
+
+function assignment(headers: Headers): JobAssignment | null {
+  const jobId = Number(headers.get('X-Job-Id'))
+  const assignedAt = headers.get('X-Assigned-At')
+  if (!jobId || !assignedAt) return null
+  let designer: string | null = null
+  try {
+    designer = decodeURIComponent(headers.get('X-Designer') ?? '') || null
+  } catch {
+    designer = headers.get('X-Designer') || null
+  }
+  return { jobId, designer, assignedAt }
 }
 
 export async function staffLogin(passcode: string): Promise<string> {

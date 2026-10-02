@@ -77,3 +77,16 @@ def test_database_enforces_the_rules(pg_url):
         with pytest.raises(psycopg.errors.CheckViolation):
             conn.execute("INSERT INTO rotation_state (id) VALUES (2)")
 
+
+def test_frontend_has_the_same_stages():
+    """PENDING_STATUSES and the stage labels are defined once per side; they must agree."""
+    import re
+    from pathlib import Path
+
+    from app.designers.models import PENDING_STATUSES, STATUSES
+
+    ts = (Path(__file__).parents[2] / "frontend" / "src" / "lib" / "designers.ts").read_text(encoding="utf-8")
+    pending = re.search(r"PENDING_STATUSES: readonly JobStatus\[\] = \[([\d, ]+)\]", ts).group(1)
+    assert {int(x) for x in pending.split(",")} == set(PENDING_STATUSES)
+    labels = dict((int(v), l) for v, l in re.findall(r"\{ value: (\d), label: '([^']+)' \}", ts))
+    assert labels == STATUSES

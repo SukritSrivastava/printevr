@@ -6,6 +6,7 @@ import { useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 export const CALCULATOR = '/'
 export const CART = '/cart'
 export const INVOICES = '/invoices'
+export const DESIGNERS = '/designers'
 export const LOGIN = '/login'
 
 /** FR-B2: calculator edits reach the URL this long after the last change. */

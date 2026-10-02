@@ -521,6 +521,26 @@ describe('cart', () => {
     await waitFor(() => expect(screen.getByLabelText('Bill No')).toHaveValue('20'))
   })
 
+  it('after printing, says which designer got the job (never on the PDF itself)', async () => {
+    savedCart([catalogueLine()], SHIP_TO)
+    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
+    mockApi({
+      invoice: () => {
+        const r = pdfResponse(19, 'unpaid', 'Invoice_19_Sogat-Jutti-Store_Unpaid.pdf')
+        r.headers.set('X-Job-Id', '7')
+        r.headers.set('X-Designer', encodeURIComponent('Namit'))
+        r.headers.set('X-Assigned-At', '2026-10-03T11:05:00+00:00')
+        return r
+      },
+    })
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    await user.click(screen.getByRole('button', { name: 'Print (Unpaid as of now)' }))
+    expect(await screen.findByTestId('assigned')).toHaveTextContent('Assigned to Namit · 3 Oct 2026, 4:35 PM.')
+    expect(screen.getByText('Invoice 19 downloaded · Assigned to Namit · 3 Oct 2026, 4:35 PM')).toBeInTheDocument()
+  })
+
   it("U5: Print (Paid) pre-fills the payable amount and today's IST date", async () => {
     savedCart([catalogueLine()], SHIP_TO)
     sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
@@ -582,13 +602,13 @@ describe('cart', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).lines[0]).toMatchObject({ source: 'custom', catalogue_unit_price: null, unit_price: '120', quantity: 50 })
   })
 
-  it('with storage: Calculator, Cart and Invoices in the top bar, and Invoices opens at /invoices', async () => {
+  it('with storage: Calculator, Cart, Invoices and Designer Assignment in the top bar, and Invoices opens at /invoices', async () => {
     mockApi({ storage: true })
     const user = setup()
     renderApp()
     await openCart(user)
     const nav = screen.getByRole('navigation', { name: 'Sections' })
-    expect(within(nav).getAllByRole('button').map((b) => b.textContent?.replace(/\d+$/, ''))).toEqual(['Calculator', 'Cart', 'Invoices'])
+    expect(within(nav).getAllByRole('button').map((b) => b.textContent?.replace(/\d+$/, ''))).toEqual(['Calculator', 'Cart', 'Invoices', 'Designer Assignment'])
     await user.click(within(nav).getByRole('button', { name: 'Invoices' }))
     expect(window.location.pathname).toBe('/invoices')
     expect(within(nav).getByRole('button', { name: 'Invoices' })).toHaveAttribute('aria-current', 'page')

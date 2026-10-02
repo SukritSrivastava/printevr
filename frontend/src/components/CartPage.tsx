@@ -1,16 +1,25 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, NetworkError, calculate } from '../api/client'
 import { createInvoice, fetchNextBillNo, staffToken } from '../api/invoices'
-import type { BillType, CartLine, ChangedLine, InvoiceSettings, PaymentInput, Series } from '../api/invoiceTypes'
+import type { BillType, CartLine, ChangedLine, InvoiceSettings, JobAssignment, PaymentInput, Series } from '../api/invoiceTypes'
 import { useCart } from '../cart/CartProvider'
 import { checkoutErrors, documentRequest, printMissing, quotationMissing } from '../lib/documents'
+import { istDateTime } from '../lib/designers'
 import { saveBlob } from '../lib/download'
 import { DEFAULT_MONEY_SETTINGS, chosenSlab, invoiceMoney } from '../lib/invoiceMoney'
 import { CartLineCard } from './CartLineCard'
 import { CheckoutForm, type CheckoutSettings } from './CheckoutForm'
+import { ROOT as DESIGN_ROOT } from './designers/live'
 import { PaymentDialog } from './PaymentDialog'
 import { StaffCancelled, useStaff } from './StaffLoginDialog'
 import { useToast } from './Toast'
+
+/** "Assigned to Namit · 3 Oct 2026, 4:35 PM" (shown in the portal only, never on the invoice). */
+function assignedText(a: JobAssignment | null): string | null {
+  if (!a) return null
+  return `${a.designer ? `Assigned to ${a.designer}` : 'No designer active: job unassigned'} · ${istDateTime(a.assignedAt)}`
+}
 
 const STALE = 'Prices changed since these were added. Check before printing.'
 const PARALLEL = 4
@@ -67,6 +76,7 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
   const { lines, checkout, dispatch, openCustomItem } = useCart()
   const withStaff = useStaff()
   const toast = useToast()
+  const queryClient = useQueryClient()
   const [stale, setStale] = useState(false)
   const [changed, setChanged] = useState<Set<string>>(new Set())
   const [settings, setSettings] = useState<CheckoutSettings>(() => settingsFrom(invoiceSettings))
@@ -81,7 +91,7 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
   const [busy, setBusy] = useState(false)
   const [paying, setPaying] = useState(false)
   const [problem, setProblem] = useState<Problem | null>(null)
-  const [printed, setPrinted] = useState<{ series: Series; no: number } | null>(null)
+  const [printed, setPrinted] = useState<{ series: Series; no: number; assigned: string | null } | null>(null)
   const busyRef = useRef(false)
 
   const applyChanges = useCallback(
@@ -149,10 +159,12 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
       const pdf = await withStaff(() => createInvoice(body))
       saveBlob(pdf.blob, pdf.filename)
       setPaying(false)
-      setPrinted({ series: pdf.series, no: pdf.billNo })
+      const assigned = assignedText(pdf.assignment)
+      setPrinted({ series: pdf.series, no: pdf.billNo, assigned })
       setStale(false)
       setChanged(new Set())
-      toast(`${DOCUMENT_NAMES[pdf.series]} ${pdf.billNo} downloaded`)
+      toast(`${DOCUMENT_NAMES[pdf.series]} ${pdf.billNo} downloaded${assigned ? ` · ${assigned}` : ''}`)
+      if (pdf.assignment) queryClient.invalidateQueries({ queryKey: [DESIGN_ROOT] })
       if (!storage) {
         dispatch({ type: 'checkout', patch: quotation ? { quote_no: String(pdf.billNo + 1) } : { bill_no: String(pdf.billNo + 1) } })
       } else {
@@ -229,6 +241,11 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
             <strong className="font-semibold">
               {DOCUMENT_NAMES[printed.series]} {printed.no} downloaded.
             </strong>{' '}
+            {printed.assigned && (
+              <>
+                <span data-testid="assigned">{printed.assigned}.</span>{' '}
+              </>
+            )}
             The cart is kept so you can print again.
           </p>
           <button

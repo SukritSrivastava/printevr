@@ -185,4 +185,14 @@ export interface InvoicePdf {
   billNo: number
   status: InvoiceStatus
   series: Series
+  /** The invoice's design job (X-Job-Id / X-Designer / X-Assigned-At); null for quotations or without one. */
+  assignment: JobAssignment | null
+}
+
+export interface JobAssignment {
+  jobId: number
+  /** null: no designer was active, so the job is unassigned. */
+  designer: string | null
+  /** UTC ISO time. */
+  assignedAt: string
 }
