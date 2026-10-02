@@ -13,6 +13,7 @@ from sqlalchemy import JSON, Date, DateTime, Integer, Numeric, String, create_en
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
+from ..designers import schema as designer_schema
 from ..settings import ROOT
 
 AMOUNT = Numeric(12, 2, asdecimal=True)
@@ -122,11 +123,22 @@ class Store:
         kwargs: dict = {"pool_pre_ping": True}
         if url.startswith("sqlite"):
             kwargs["connect_args"] = {"check_same_thread": False, "timeout": 15}
+        else:
+            # No server-side prepared statements: they don't survive a transaction-mode
+            # pooler (Neon's -pooler host, PgBouncer), which DATABASE_URL should point at.
+            kwargs["connect_args"] = {"prepare_threshold": None}
         self.engine: Engine = create_engine(url, **kwargs)
         self.is_sqlite = url.startswith("sqlite")
         Base.metadata.create_all(self.engine)
         self._add_missing_columns()
         self.session = sessionmaker(self.engine, expire_on_commit=False)
+        self._designers_ready = False
+
+    def designers_available(self) -> bool:
+        """Whether the Designer Assignment tables exist (on Postgres: the migrations have run)."""
+        if not self._designers_ready:
+            self._designers_ready = designer_schema.prepare(self.engine)
+        return self._designers_ready
 
     def _add_missing_columns(self) -> None:
         """create_all() doesn't alter existing tables: add columns introduced since (all nullable)."""
