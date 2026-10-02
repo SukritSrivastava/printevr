@@ -44,3 +44,13 @@ Internal quoting tool. The spec is `docs/BRD-v2.1.pdf` (BRD v2.1); read the rele
   - **Pay in full by default** (replaces the fixed 80/20 for new invoices): `POST /api/invoices` takes an optional `advance_pct`; without it the invoice asks for 100% before printing and the payment terms print no "20% ... before dispatch" line. Staff tick "Split payment" in the cart to choose a percent (it starts at config `advance_pct`, 80). Stored per document (`advance_pct` column, added on startup); old invoices have none and keep reprinting with the config's 80/20.
   - **No salesperson**: the name is no longer asked for, printed or emailed. `invoices.salesperson` keeps the names already saved (never printed, even on reprints).
   - Bill No is only pre-filled once staff are signed in (the endpoint needs the token); blank means "assign the next one on print".
+  - `create()` takes a Postgres advisory lock per series (`Store.lock_series`), so separate server instances number one at a time. Before this, two instances printing at the same moment could pick the same number and answer 500.
+
+## Designer Assignment (not in any BRD; README "Designer Assignment")
+- Every Non-GST and GST invoice gets exactly one design job (`design_jobs`, unique `(series, bill_no)`), made in the invoice's own transaction by `designers.service.ensure_job`. Quotations get none. Re-downloads and payments return the existing job. Deleting an invoice deletes its job (the rotation doesn't move back).
+- The rotation is decided only on the server, under `SELECT ... FOR UPDATE` on the one-row `rotation_state`. Never pick a designer anywhere else: not in the frontend, not without the lock.
+- On Postgres the designer tables come only from `backend/migrations/*.sql` (`backend/scripts/migrate.py`). Never `create_all` them there. `app/designers/models.py` mirrors them for SQLite and must match (`tests/test_designer_migrations.py`). For schema changes add a new numbered file; never edit an applied one.
+- `PENDING_STATUSES` and the stage labels exist once in `app/designers/models.py` and once in `frontend/src/lib/designers.ts`; a test keeps them equal.
+- Times are `timestamptz` from the database clock (`clock_timestamp()`), shown in IST by `frontend/src/lib/designers.ts`.
+- The designer's name goes out in response headers only (`X-Designer`), never on a PDF.
+- The lock and migration tests need `TEST_DATABASE_URL` (a throwaway Postgres). Without it they are skipped.

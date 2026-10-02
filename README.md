@@ -83,11 +83,75 @@ npx vercel env add STAFF_PASSCODE production
 npx vercel env add SECRET_KEY production
 ```
 
+## Designer Assignment
+
+Every **Non-GST or GST invoice** printed in the portal becomes a **design job**, assigned automatically to the next designer in turn (Namit → Ajendra → Namit → …). Quotations don't make jobs. The **Designer Assignment** tab is shown wherever invoices are stored, behind the same staff passcode. It has:
+
+- **Jobs board**: every job, newest first. It shows invoice #, customer, designer, when it was assigned, a progress dropdown, vendor name and last update. Filters: designer, status, **Pending only** (on by default) and search by customer or invoice number. "Next job goes to" shows at the top.
+- **Designer workload**: one card per designer: pending jobs, count per stage, how long the oldest pending job has waited, and their jobs. Click a job (here or on the board) for its status history.
+- **Manage designers**: add, rename, pause or resume. Paused designers are skipped by the rotation.
+
+**Progress stages:** 1 Work assigned (new jobs) · 2 Sent to customer for approval · 3 Approval received · 4 Sent for sampling.
+- Stages 1–3 count as **pending**. The definition is `PENDING_STATUSES` in `backend/app/designers/models.py` and `frontend/src/lib/designers.ts`; a test keeps the two equal.
+- A dropdown change saves at once. If the save fails, the dropdown goes back and a message says so. Moving back to an earlier stage is allowed. Every change is logged with its time.
+- The vendor field saves on Enter or when you leave it. It suggests names used before, and the server trims it and caps it at 80 characters.
+- Times are stored in UTC and shown in IST ("3 Oct 2026, 4:35 PM · 2 hours ago").
+
+After printing, the cart shows "Assigned to Namit · 3 Oct 2026, 4:35 PM". The designer is never printed on the invoice.
+
+**Sync.** The database is the only copy. The open tab refetches every 10 seconds while it's visible and stops while the browser tab is hidden. It refetches at once when you come back and after your own changes. If two people edit the same job, the last save wins.
+
+### How the rotation works
+
+- **Tables:** `designers` (name, active, `rotation_order`) and a one-row `rotation_state`. Its `last_order` is the `rotation_order` of whoever got the last job; `seq` counts the jobs assigned so far.
+- **Printing** an invoice (`POST /api/invoices`) creates its job **in the same database transaction as the invoice**:
+  1. If the invoice (series + bill number) already has a job, that job is returned and the rotation doesn't move. Re-downloads and **Record payment** (unpaid → paid on the same bill) never create jobs, and `design_jobs` has a unique key on `(series, bill_no)`.
+  2. Otherwise `SELECT … FROM rotation_state FOR UPDATE` locks the pointer. The job goes to the first **active** designer whose `rotation_order` comes after `last_order`, wrapping round to the first. Simultaneous invoices queue on that lock, so nobody is skipped or picked twice.
+  3. The job and its first history row are inserted, `assigned_at` is taken from the database clock (`clock_timestamp()`), and the pointer moves.
+- **Nobody active:** the job is saved **unassigned** and the rotation doesn't move. A new designer joins at the end of the rotation.
+- **Print (Paid) from the cart** issues a *new* bill number, so it is a new invoice and a new job. To mark the same invoice paid, use **Record payment** on the Invoices tab.
+- **Deleting an invoice** deletes its job and history too. The rotation doesn't move back.
+- **If the job step fails**, the invoice is still saved and printed (the job step runs in a savepoint) and the error is logged.
+- **Bill numbers across instances:** on Postgres, printing also takes a per-series advisory lock (`pg_advisory_xact_lock`) for the length of the transaction. That stops separate Vercel instances from picking the same bill number at the same moment.
+
+**API** (needs the staff token, like `/api/invoices`):
+- `GET /api/designers`, `POST /api/designers`, `PATCH /api/designers/{id}` (`name`, `active`)
+- `GET /api/jobs?designer=&status=&pending=&q=`, `PATCH /api/jobs/{id}` (`status` 1–4, `vendor_name`), `GET /api/jobs/{id}/history`
+- `GET /api/workload`, `GET /api/rotation/next`, `GET /api/vendors?q=`
+
+PDF responses carry `X-Job-Id`, `X-Designer` (percent-encoded) and `X-Assigned-At`.
+
+### Database migrations
+
+The designer tables come from versioned SQL files in `backend/migrations/`: `0001_designer_jobs.sql`, and `0002_seed_designers.sql`, which adds Namit and Ajendra.
+- On Postgres the app never creates these tables itself. Until the migrations are applied, the tab says "run the migrations" and invoices print exactly as before.
+- Local SQLite creates and seeds them automatically.
+
+Run the migrations from your machine against the hosted database. Copy the **unpooled** connection string from the Neon console (or Vercel → Storage → your Neon database), then:
+
+```sh
+pip install -r backend/requirements.txt
+DATABASE_URL_UNPOOLED='postgresql://…' python backend/scripts/migrate.py --status   # see what's pending
+DATABASE_URL_UNPOOLED='postgresql://…' python backend/scripts/migrate.py            # apply it
+```
+
+In PowerShell: `$env:DATABASE_URL_UNPOOLED='postgresql://…'; python backend/scripts/migrate.py`.
+- Each file runs once, in its own transaction, and is recorded in `schema_migrations`. Running the script again does nothing.
+- To change the schema later, add `0003_….sql`; never edit an applied file. Update `backend/app/designers/models.py` to match (`tests/test_designer_migrations.py` compares the two on Postgres).
+
+The app itself keeps using `DATABASE_URL`, which on Vercel should be the **pooled** Neon string (host with `-pooler`). The API turns off server-side prepared statements so it works through the pooler.
+
 ## Tests
 
 ```sh
-cd backend && python -m pytest     # 149 tests: BRD section 11, all sheet prices, invoice golden PDF (G1-G5), money (P1-P8), drafts (K1-K6), API (A1-A11)
-cd frontend && npm test            # calculator on screen, plus cart and printing U1-U7 and the Invoices page
+cd backend && python -m pytest     # BRD section 11, all sheet prices, invoice golden PDF (G1-G5), money (P1-P8), drafts (K1-K6), API (A1-A11), designer assignment
+cd frontend && npm test            # calculator on screen, cart and printing U1-U7, the Invoices page, the Designer Assignment tab
+```
+
+SQLite has no row locks, so the designer tests can also run against real Postgres when `TEST_DATABASE_URL` is set. Use a local Postgres or a spare Neon branch, **never production**; each test works in its own throwaway schema. This adds the migration checks and the "10 invoices at the same moment" test:
+
+```sh
+TEST_DATABASE_URL='postgresql://postgres@localhost:5432/postgres' python -m pytest tests/test_designer*.py
 ```
 
 The golden tests compare the rendered Sogat Jutti invoice with `backend/tests/fixtures/invoice/reference_bill18.pdf`; on a raster mismatch they save an overlay PNG to `backend/tests/output/`.
@@ -121,6 +185,8 @@ A reload that fails (a blank price, a duplicated tier, a product missing from co
 | `SESSION_SECRET` | *(unset)* | Optional extra secret for signing the session cookie |
 | `SESSION_DAYS` | `7` | How long a sign-in lasts |
 | `TRUST_PROXY_HEADERS` | `1` on Vercel, else `0` | Rate-limit by the forwarded client IP (`X-Real-IP` / `X-Forwarded-For`) instead of the proxy's |
+| `DATABASE_URL_UNPOOLED` | *(unset)* | Only for `backend/scripts/migrate.py`: Neon's direct (unpooled) connection string. Not needed on Vercel |
+| `TEST_DATABASE_URL` | *(unset)* | Only for tests: a throwaway Postgres for the designer lock and migration tests |
 | `DATA_FILE`, `CONFIG_FILE` | `data/…xlsx`, `config/products.yaml` | Override file locations |
 | `VITE_API_URL` (frontend build) | *(same origin)* | API base URL when the UI and API are on different hosts |
 
