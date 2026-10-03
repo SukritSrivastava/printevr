@@ -1,9 +1,9 @@
 """A re-opened invoice prints exactly like the first print (reported QR inconsistency, 2026-10-03).
 
 No invoice template draws a QR code: the only one was the quotation's UPI QR, removed in
-09be032, and invoices carry no payment details at all (print_payment_details: false). What a
-first print and a reprint show must therefore match byte for byte: a reprint renders from the
-stored record, never from state that only existed when the invoice was made.
+09be032. A reprint renders from the stored record, never from state that only existed when the
+invoice was made, so it matches the first print byte for byte until a payment is recorded; the
+payment summary (config/invoice.yaml payment_summary) then lists it under RECIEVABLES.
 """
 from .invoice_helpers import open_pdf
 from .test_invoice_api import app, auth, client, invoice_body, k1_line, token  # noqa: F401
@@ -27,15 +27,25 @@ def test_non_gst_unpaid_reprint_is_identical(client, auth):  # noqa: F811
     assert images(first.content) == images(again.content) == [2]
 
 
-def test_reprint_after_recording_a_payment_is_unchanged(client, auth):  # noqa: F811
+def text_of(data: bytes) -> str:
+    with open_pdf(data) as pdf:
+        return "\n".join(page.extract_text() for page in pdf.pages)
+
+
+def test_reprint_after_recording_a_payment_shows_it(client, auth):  # noqa: F811
     first = client.post("/api/invoices", json=invoice_body([k1_line(client)]), headers=auth)
     bill_no = first.headers["x-bill-no"]
+    assert "RECIEVABLES" not in text_of(first.content)
     paid = client.post(f"/api/invoices/{bill_no}/payments", json={"amount": "1000", "date": "2026-10-01", "mode": "cash"}, headers=auth)
     assert paid.status_code == 200 and paid.headers["x-invoice-status"] == "part_paid"
-    assert paid.content == first.content == client.get(f"/api/invoices/{bill_no}/pdf", headers=auth).content
+    # The payment PDF and every later reprint are the same, and list the payment.
+    assert paid.content == client.get(f"/api/invoices/{bill_no}/pdf", headers=auth).content
+    text = text_of(paid.content)
+    assert "1 OCTOBER 2026:- 1000/- (VIA CASH)" in text
+    assert "PENDING AMOUNT (TO BE PAID) :- 25250/- (BEFORE DELIVERY)" in text  # 26250 - 1000
 
 
-def test_print_paid_and_unpaid_match(client, auth):  # noqa: F811
+def test_print_paid_and_unpaid_differ_only_by_the_receivables(client, auth):  # noqa: F811
     unpaid = client.post("/api/invoices", json=invoice_body([k1_line(client)], bill_no=500), headers=auth)
     paid = client.post(
         "/api/invoices",
@@ -44,10 +54,12 @@ def test_print_paid_and_unpaid_match(client, auth):  # noqa: F811
         headers=auth,
     )
     assert unpaid.status_code == paid.status_code == 201
-    # Only the bill number differs between the two, so the pages differ in that text alone.
-    with open_pdf(unpaid.content) as a, open_pdf(paid.content) as b:
-        ta, tb = a.pages[0].extract_text(), b.pages[0].extract_text()
-    assert ta.replace("500", "501") == tb
+    ta, tb = text_of(unpaid.content), text_of(paid.content)
+    assert "RECIEVABLES" not in ta and "RECIEVABLES" in tb
+    assert "PENDING AMOUNT (TO BE PAID) :- 0/- (PAID IN FULL)" in tb
+    # Apart from the bill number and the RECIEVABLES box, the pages say the same.
+    receivables = tb[tb.index("RECIEVABLES"):tb.index("PAID IN FULL)") + len("PAID IN FULL)")]
+    assert ta.replace("500", "501") == tb.replace(receivables + "\n", "")
 
 
 def test_gst_reprint_is_identical(client, auth):  # noqa: F811

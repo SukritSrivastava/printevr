@@ -52,6 +52,22 @@ advance_pct: 80
 # `terms_lines`. Payments are still recorded in the app (Invoices page) and emailed to staff;
 # they only stay off the PDF. true prints all of it again, exactly as before.
 print_payment_details: false
+# The payment block printed under the items on every Non-GST invoice (owner's request,
+# 2026-10-03, from the "PAYMENT TERMS / RECIEVABLES" mock-up). Filled from the invoice, never
+# typed: the PAYMENT TERMS box (title from payment_terms.title) shows the total, the advance and,
+# for a split payment, the balance before dispatch; the RECIEVABLES box, once a payment is
+# recorded, lists each payment and what is still pending (total minus everything received).
+# Remove this block to go back to print_payment_details alone. Quotations never print it, and
+# GST invoices keep the BASTTA layout, whose payment details still follow print_payment_details.
+payment_summary:
+  total: "**Total Amount:- Rs. {payable}/-**"
+  advance: "**{advance_pct}% amount :-  {advance}/- (Advanced Payment)**"
+  balance: "{balance_pct}% Amount:- Rs. {balance}/- (Before Dispatching the Order)"
+  receivables_title: "RECIEVABLES"
+  received: "**{date}:- {amount}/- (VIA {mode})**"
+  pending: "**PENDING AMOUNT (TO BE PAID) :- {pending}/- (BEFORE DELIVERY)**"
+  paid_in_full: "**PENDING AMOUNT (TO BE PAID) :- 0/- (PAID IN FULL)**"
+  modes: { upi: UPI, cash: CASH, bank_transfer: BANK TRANSFER, cheque: CHEQUE }
 pad_single_digit_unit_price: true
 filename: "Invoice_{bill_no}_{business}_{status}.pdf"
 status_labels: { unpaid: Unpaid, part_paid: Part-paid, paid: Paid }

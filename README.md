@@ -76,6 +76,7 @@ Staff can add priced articles (and hand-typed custom items) to a cart, fill in S
 - The server re-prices every calculator line before printing; a changed price answers `409 PRICES_CHANGED` and nothing is saved. A price edited in the cart is allowed and recorded (`price_edited`).
 - Bill numbers start at 19 (`config/invoice.yaml` → `bill_no_start`) and are never reused.
 - PDFs are drawn with ReportLab from `backend/app/invoice/layout.py` (every coordinate) and `config/invoice.yaml` (every word). Fonts: Montserrat (SIL OFL) in `backend/assets/fonts/`.
+- **Non-GST invoices** print in the Printevr template; **GST invoices** keep the BASTTA layout. Under the items, every Non-GST invoice prints a **PAYMENT TERMS** box (total, advance %, and the balance before dispatch when the payment is split) and, once a payment is recorded, a **RECIEVABLES** box listing each payment (date, amount, mode) and the amount still pending (total minus everything received). It's filled in from the invoice; the wording is in `config/invoice.yaml` → `payment_summary`.
 - Everything under `/api/invoices` needs the **staff passcode**, asked once per browser tab. The calculator stays open as before.
 
 ### Browser storage

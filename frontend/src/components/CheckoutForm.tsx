@@ -13,6 +13,8 @@ export interface CheckoutSettings extends MoneySettings {
   stateCode: string
   /** false: invoices print no payment details, so the inputs that only fed them are hidden. */
   printPaymentDetails?: boolean
+  /** true: Non-GST invoices print the payment summary (advance %), so the split is offered. */
+  printPaymentSummary?: boolean
 }
 
 type TextKey = { [K in keyof Checkout]: Checkout[K] extends string | null ? K : never }[keyof Checkout]
@@ -93,6 +95,8 @@ export function CheckoutForm({
   const f = (key: keyof Checkout) => ({ error: errors[key], showError: showErrors || !!checkout[key] })
   const patch = (p: Partial<Checkout>) => dispatch({ type: 'checkout', patch: p })
   const paymentDetails = settings.printPaymentDetails !== false
+  // The split prints in the reference's payment box or in the payment summary.
+  const splitShown = paymentDetails || settings.printPaymentSummary === true
 
   return (
     <section aria-labelledby="checkout-title" className="flex flex-col gap-4 rounded-md bg-stock p-4 shadow-sm ring-1 ring-rule">
@@ -264,7 +268,7 @@ export function CheckoutForm({
         <p className="text-xs text-ink-soft">Blank or 0 hides the saving block (quotations and Non-GST invoices).</p>
       </div>
 
-      {paymentDetails && (
+      {splitShown && (
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-1.5 text-sm font-semibold text-ink-soft">Payment</legend>
           <label className="flex items-center gap-2">
@@ -303,7 +307,7 @@ export function CheckoutForm({
           <dt>{gst ? 'Total (after tax)' : 'Payable'}</dt>
           <dd data-testid="payable">{money(fromPaise(m.payable))}</dd>
         </div>
-        {!paymentDetails ? null : checkout.split_payment && !errors.advance_pct ? (
+        {!splitShown ? null : checkout.split_payment && !errors.advance_pct ? (
           <>
             <div className="flex justify-between text-sm text-ink-soft">
               <dt>{advancePct}% before printing</dt>

@@ -188,6 +188,8 @@ def create_router(
             # false: printed invoices carry no payment details, so the cart hides the inputs
             # that only fed them (GST "Payment Terms", the split payment).
             "print_payment_details": invoice_cfg.print_payment_details if invoice_cfg else True,
+            # true: Non-GST invoices print the payment summary (advance %), so the cart offers the split.
+            "print_payment_summary": bool(invoice_cfg.payment_summary) if invoice_cfg else False,
         }
 
     @router.get("/invoices/next-bill-no")
