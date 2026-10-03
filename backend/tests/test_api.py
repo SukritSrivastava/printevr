@@ -35,7 +35,9 @@ def err(response):
 
 
 def test_health(client):
-    body = client.get("/api/health").json()
+    # Public health is ok/error only; the counts moved to the operator's /api/admin/status.
+    assert client.get("/api/health").json() == {"status": "ok"}
+    body = client.get("/api/admin/status", headers={"X-Admin-Token": TOKEN}).json()
     assert body["status"] == "ok"
     assert body["counts"]["tier_rows"] == 950 and body["counts"]["items"] == 233
     assert body["counts"]["open_flags"] == 27

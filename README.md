@@ -40,11 +40,25 @@ The sheet and config are bundled into each deployment, so to change prices, comm
 
 `api/requirements.txt` is what Vercel installs. Keep it the same as `backend/requirements.txt`.
 
-If the API can't start on Vercel, every `/api/*` call answers `503 STARTUP_FAILED` with the exception, and the full traceback is in the function logs. Open `/api/health` to see it.
+If the API can't start on Vercel, every `/api/*` call answers `503 STARTUP_FAILED` with only an error id (`/api/health` answers `{"status": "error"}`); the exception and full traceback are in the function logs under that id. Sending the `X-Admin-Token` header (the `ADMIN_TOKEN` value) also returns the exception and the end of the traceback:
+
+```sh
+curl https://<your-site>/api/admin/status -H "X-Admin-Token: $ADMIN_TOKEN"
+```
+
+## Health, errors and the operator status page
+
+- `GET /api/health` is public and answers only `{"status": "ok"}` or `{"status": "error"}` (price data loaded or not), always with HTTP 200 while the API runs. Uptime checks and the Docker healthcheck use it.
+- `GET /api/admin/status` needs `X-Admin-Token` and shows what `/api/health` used to: load time, source file, the loader error, counts, plus why invoicing is off, whether the database schema is ready (and which migrations are pending), and where login limits are counted. Without `ADMIN_TOKEN` it answers 403.
+- No response carries exception text, tracebacks, file paths or environment variable names. An unexpected failure answers `500 INTERNAL_ERROR`, and a database failure on the invoice or designer routes answers `503 STORAGE_UNAVAILABLE`. Both include `details.error_id`, which is also in the message as "(ref …)" and in the server log next to the full traceback. When staff report the ref, search the log for `error_id=<ref>`.
+- `DATA_NOT_LOADED` no longer carries `details.reason`; the reason is in the log and on the status page. `INVOICING_DISABLED` and `AUTH_NOT_CONFIGURED` no longer name the missing variable; the startup log and the status page do.
+- Signed-in staff still get actionable messages: `STORAGE_NOT_READY` (503) means the database needs its migrations ("Ask the operator to run the database migrations"), and `DESIGNERS_NOT_SET_UP` is unchanged.
 
 ## Password
 
-The site asks for a password before anything else loads (`/login`), then opens the quote desk. The check is server-side: without the signed session cookie from `POST /api/login`, every pricing endpoint answers `401`. Only `/api/health` and the sign-in routes are open. Wrong guesses are limited to 10 a minute per IP.
+The site asks for a password before anything else loads (`/login`), then opens the quote desk. The check is server-side: without the signed session cookie from `POST /api/login`, every pricing endpoint answers `401`. Only `/api/health` and the sign-in routes are open (`/api/admin/*` has its own token). Wrong guesses are limited to 10 a minute per client IP (the staff passcode to 5); see [Rate limits](#rate-limits).
+
+**Sign out** also clears the customer details saved in this browser and the staff token (see [Browser storage](#browser-storage)).
 
 The password lives in the `SITE_PASSWORD` environment variable, never in the code (this repo is public). To change it on Vercel:
 
@@ -64,6 +78,19 @@ Staff can add priced articles (and hand-typed custom items) to a cart, fill in S
 - PDFs are drawn with ReportLab from `backend/app/invoice/layout.py` (every coordinate) and `config/invoice.yaml` (every word). Fonts: Montserrat (SIL OFL) in `backend/assets/fonts/`.
 - Everything under `/api/invoices` needs the **staff passcode**, asked once per browser tab. The calculator stays open as before.
 
+### Browser storage
+
+The cart is saved in `localStorage` (`printevr.cart.v2`) so it survives a reload. The retention policy (`frontend/src/cart/storage.ts`):
+
+| What | Kept |
+|---|---|
+| Cart lines (articles, specs, quantities, prices) and the cart's own settings (document type, Bill/Quote No, date, GST slab, saving, payment split) | Until **Clear cart**, as before; also across Sign out and expiry. They describe the order, not the customer, and prices are re-checked on the server anyway |
+| Customer details: Ship To / buyer name, contact person, address, phone, buyer and consignee GSTINs, consignee details, and the GST invoice's order and transport fields (delivery and payment terms, PO date, GR/RR, transport, vehicle, e-way bill, station) | **12 hours after the checkout form last changed** (opening the page or re-pricing the lines doesn't restart it), then cleared, also in a page left open. Cleared at once on **Sign out** |
+| Site session | Never in browser storage: an `httpOnly` cookie |
+| Staff token | `sessionStorage` (this tab only), removed on Sign out |
+
+A cart saved by an older version (`printevr.cart.v1`) is read once: its lines are kept, its customer details are dropped (their age is unknown), and the old key is deleted. Storage that is blocked, full, corrupt, from an unknown version or holding wrongly typed fields never breaks the page: the bad parts are ignored and a console warning is logged.
+
 ### Turning invoicing on
 
 | Variable | Needed | Meaning |
@@ -76,7 +103,7 @@ Staff can add priced articles (and hand-typed custom items) to a cart, fill in S
 
 **With or without storage.** On a normal server or with `docker compose`, invoices are stored in SQLite (`var/` is a volume): bill numbers are assigned by the server and the **Invoices** tab lists them and records payments.
 
-**On Vercel** (local disk is wiped between requests) there is no default database. Without `DATABASE_URL`, invoices are **rendered and downloaded but not stored**. The cart's Bill No field is then required (it counts up by one after each print on that device), the Invoices tab is hidden, and a later payment is recorded by printing again with **Print (Paid)** and the same Bill No. Prices are still re-checked on the server and the staff passcode is still required. This site stores them: production's `DATABASE_URL` points at a free Neon Postgres (Vercel Marketplace, `iad1`), so the Invoices tab shows there. Any hosted Postgres works, e.g. `postgresql://user:pass@host/db?sslmode=require`; tables are created on first use.
+**On Vercel** (local disk is wiped between requests) there is no default database. Without `DATABASE_URL`, invoices are **rendered and downloaded but not stored**. The cart's Bill No field is then required (it counts up by one after each print on that device), the Invoices tab is hidden, and a later payment is recorded by printing again with **Print (Paid)** and the same Bill No. Prices are still re-checked on the server and the staff passcode is still required. This site stores them: production's `DATABASE_URL` points at a free Neon Postgres (Vercel Marketplace, `iad1`), so the Invoices tab shows there. Any hosted Postgres works, e.g. `postgresql://user:pass@host/db?sslmode=require`. On Postgres the tables come from the [migrations](#database-migrations), applied before deploying; SQLite applies them on start.
 
 ```sh
 npx vercel env add STAFF_PASSCODE production
@@ -123,23 +150,50 @@ PDF responses carry `X-Job-Id`, `X-Designer` (percent-encoded) and `X-Assigned-A
 
 ### Database migrations
 
-The designer tables come from versioned SQL files in `backend/migrations/`: `0001_designer_jobs.sql`, and `0002_seed_designers.sql`, which adds Namit and Ajendra.
-- On Postgres the app never creates these tables itself. Until the migrations are applied, the tab says "run the migrations" and invoices print exactly as before.
-- Local SQLite creates and seeds them automatically.
+Every table comes from a versioned file in `backend/migrations/`, applied in order by `app/migrations.py` and recorded in `schema_migrations`:
 
-Run the migrations from your machine against the hosted database. Copy the **unpooled** connection string from the Neon console (or Vercel → Storage → your Neon database), then:
+| File | Database | What |
+|---|---|---|
+| `0001_designer_jobs.sql` | Postgres | Designer Assignment tables (SQLite builds them from `app/designers/models.py`) |
+| `0002_seed_designers.sql` | Postgres | Namit and Ajendra |
+| `0003_invoice_tables.py` | Postgres + SQLite | `invoices`, `gst_invoices`, `quotations`, `document_counters`, `invoice_events`. Creates what is missing and adds the nullable columns added since the first schema (`gst`, `salesperson`, `advance_pct`, `invoice_events.series`). It never drops, rewrites or backfills a row: issued invoices, payments, events, counters and design jobs stay as they are |
+| `0004_rate_limits.py` | Postgres + SQLite | `rate_limit_counters`, for login limits shared by every instance |
 
-```sh
-pip install -r backend/requirements.txt
-DATABASE_URL_UNPOOLED='postgresql://…' python backend/scripts/migrate.py --status   # see what's pending
-DATABASE_URL_UNPOOLED='postgresql://…' python backend/scripts/migrate.py            # apply it
-```
+- `.sql` files are Postgres-only; `.py` files define `upgrade(ctx)` with hand-written SQL for both dialects, so a migration never changes when the models do. `app/invoice/store.py` and `app/designers/models.py` must match them (`tests/test_invoice_migrations.py` and `tests/test_designer_migrations.py` compare them).
+- Each file runs once, in its own transaction, together with its `schema_migrations` row, so a failing file leaves nothing half-done. The transaction first takes a lock (Postgres `pg_advisory_xact_lock`, SQLite `BEGIN IMMEDIATE`) and only then checks whether the file is still pending. Several processes or instances can therefore run the migrations at once: one applies each file, the others wait and skip it. The lock is transaction-scoped, so it works through Neon's pooler too.
+- The app never changes the schema at runtime on Postgres. It checks the tables it needs when it first opens the database. If they're missing, invoice and designer routes answer `503 STORAGE_NOT_READY` and the calculator keeps working. If they're there but `0003` isn't recorded (a database built by the old runtime code), it works and logs a warning to run the migrations.
+- **SQLite** (local, `docker compose`) applies pending migrations by itself when the API first opens the database, under the same lock, so `uvicorn --workers N` is safe. Your existing `var/invoices.db` is upgraded in place.
+- To change the schema later, add `0005_….py` (or a Postgres-only `.sql`); never edit an applied file. Update the models to match.
 
-In PowerShell: `$env:DATABASE_URL_UNPOOLED='postgresql://…'; python backend/scripts/migrate.py`.
-- Each file runs once, in its own transaction, and is recorded in `schema_migrations`. Running the script again does nothing.
-- To change the schema later, add `0003_….sql`; never edit an applied file. Update `backend/app/designers/models.py` to match (`tests/test_designer_migrations.py` compares the two on Postgres).
+**Deployment order (Postgres / Vercel):**
 
-The app itself keeps using `DATABASE_URL`, which on Vercel should be the **pooled** Neon string (host with `-pooler`). The API turns off server-side prepared statements so it works through the pooler.
+1. **Back up** (Neon: create a branch, or `pg_dump`).
+2. **Apply the migrations** with the new code checked out, against the **unpooled** connection string (Neon console, or Vercel → Storage → your Neon database):
+   ```sh
+   pip install -r backend/requirements.txt
+   DATABASE_URL_UNPOOLED='postgresql://…' python backend/scripts/migrate.py --status   # see what's pending
+   DATABASE_URL_UNPOOLED='postgresql://…' python backend/scripts/migrate.py            # apply it
+   ```
+   In PowerShell: `$env:DATABASE_URL_UNPOOLED='postgresql://…'; python backend/scripts/migrate.py`. Running it again does nothing.
+3. **Deploy** the app (push / merge; Vercel builds it). Every migration only adds tables and nullable columns, so the version still running keeps working while step 2 runs and until step 3 finishes.
+4. **Check** `GET /api/admin/status` with `X-Admin-Token`: `storage.ready` should be `true` and `pending_migrations` empty.
+
+With `docker compose` and Postgres: `docker compose run --rm api python scripts/migrate.py`, then `docker compose up -d`. With SQLite nothing extra is needed.
+
+The app itself keeps using `DATABASE_URL`, which on Vercel should be the **pooled** Neon string (host with `-pooler`). The API turns off server-side prepared statements so it works through the pooler, and gives up connecting after 10 seconds (a `connect_timeout` in the URL overrides it) instead of libpq's default of minutes.
+
+### Rate limits
+
+| Limit | Where it is counted |
+|---|---|
+| Site password: 10 tries a minute per client | The database when `DATABASE_URL` is Postgres (`RATE_LIMIT_BACKEND=auto`), so all instances share it; otherwise in memory |
+| Staff passcode: 5 tries a minute per client | Same as above |
+| `/api/calculate`: `RATE_LIMIT_PER_MINUTE` per client | Always in memory, per instance: a database write per quote would cost more than the limit protects |
+
+- **Shared** (`app/ratelimit.py`, table `rate_limit_counters`): uses the Neon Postgres the site already has, so there's no new service or cost. It is a sliding-window counter over the current and previous minute. Every attempt counts, including those refused while over the limit, so a client that keeps trying stays blocked until it stops for a minute. Client addresses are stored only as SHA-256 hashes, and rows older than a minute are deleted as it goes.
+- **Fallback:** if the shared counter can't be used (migration 0004 not applied, database unreachable), each instance counts in memory and logs a warning at most every 5 minutes. On Vercel, a client could then get up to *limit × running instances* tries. `GET /api/admin/status` shows which backend is configured.
+- **Memory is bounded:** each in-memory limiter sweeps out clients idle for a minute and keeps at most `RATE_LIMIT_MAX_KEYS` (10,000) clients, forgetting the least recently seen first.
+- **Client IP:** forwarded headers are believed only with `TRUST_PROXY_HEADERS=1` (the default on Vercel, whose edge overwrites `X-Forwarded-For`) and, if `TRUSTED_PROXIES` is set, only from those peers. `X-Forwarded-For` is read from the right: with `TRUSTED_PROXY_HOPS=1` the last entry (the address the proxy saw) is the client, and anything the client wrote further left is ignored. `X-Real-IP` is used only when there is no `X-Forwarded-For`. `docker compose` sets this up for its nginx and publishes the API port on `127.0.0.1` only. Never turn it on where clients can reach the API directly.
 
 ## Tests
 
@@ -148,10 +202,10 @@ cd backend && python -m pytest     # BRD section 11, all sheet prices, invoice g
 cd frontend && npm test            # calculator on screen, cart and printing U1-U7, the Invoices page, the Designer Assignment tab
 ```
 
-SQLite has no row locks, so the designer tests can also run against real Postgres when `TEST_DATABASE_URL` is set. Use a local Postgres or a spare Neon branch, **never production**; each test works in its own throwaway schema. This adds the migration checks and the "10 invoices at the same moment" test:
+SQLite has no row locks, so the designer, migration and rate-limit tests can also run against real Postgres when `TEST_DATABASE_URL` is set. Use a local Postgres or a spare Neon branch, **never production**; each test works in its own throwaway schema. This adds the Postgres migration checks (new database, upgrades with existing invoices and design jobs, eight processes migrating at once), the shared login limits across instances and the "10 invoices at the same moment" test:
 
 ```sh
-TEST_DATABASE_URL='postgresql://postgres@localhost:5432/postgres' python -m pytest tests/test_designer*.py
+TEST_DATABASE_URL='postgresql://postgres@localhost:5432/postgres' python -m pytest tests/test_designer*.py tests/test_invoice_migrations.py tests/test_rate_limits.py
 ```
 
 The golden tests compare the rendered Sogat Jutti invoice with `backend/tests/fixtures/invoice/reference_bill18.pdf`; on a raster mismatch they save an overlay PNG to `backend/tests/output/`.
@@ -178,15 +232,19 @@ A reload that fails (a blank price, a duplicated tier, a product missing from co
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ADMIN_TOKEN` | *(unset)* | Required header value for `/api/admin/reload` |
+| `ADMIN_TOKEN` | *(unset)* | Required `X-Admin-Token` value for `/api/admin/reload` and `/api/admin/status` |
 | `CORS_ORIGIN` | `http://localhost:5173` | Frontend origin(s), comma-separated |
 | `RATE_LIMIT_PER_MINUTE` | `60` | `/api/calculate` calls per minute per IP |
+| `RATE_LIMIT_BACKEND` | `auto` | Where login limits are counted: `auto` (the database when `DATABASE_URL` is Postgres), `database`, or `memory` ([Rate limits](#rate-limits)) |
+| `RATE_LIMIT_MAX_KEYS` | `10000` | Most clients an in-memory limiter remembers |
 | `SITE_PASSWORD` | *(unset)* | Password for the site. Unset locally means no password; on Vercel the API refuses to run without it |
 | `SESSION_SECRET` | *(unset)* | Optional extra secret for signing the session cookie |
 | `SESSION_DAYS` | `7` | How long a sign-in lasts |
-| `TRUST_PROXY_HEADERS` | `1` on Vercel, else `0` | Rate-limit by the forwarded client IP (`X-Real-IP` / `X-Forwarded-For`) instead of the proxy's |
+| `TRUST_PROXY_HEADERS` | `1` on Vercel, else `0` | Rate-limit by the forwarded client IP (`X-Forwarded-For`, read from the right; `X-Real-IP` only without it) instead of the proxy's |
+| `TRUSTED_PROXY_HOPS` | `1` | How many proxies append to `X-Forwarded-For` in front of the API |
+| `TRUSTED_PROXIES` | *(unset)* | Comma-separated IPs/CIDRs: believe forwarded headers only from these peers |
 | `DATABASE_URL_UNPOOLED` | *(unset)* | Only for `backend/scripts/migrate.py`: Neon's direct (unpooled) connection string. Not needed on Vercel |
-| `TEST_DATABASE_URL` | *(unset)* | Only for tests: a throwaway Postgres for the designer lock and migration tests |
+| `TEST_DATABASE_URL` | *(unset)* | Only for tests: a throwaway Postgres for the lock, migration and shared rate-limit tests |
 | `DATA_FILE`, `CONFIG_FILE` | `data/…xlsx`, `config/products.yaml` | Override file locations |
 | `VITE_API_URL` (frontend build) | *(same origin)* | API base URL when the UI and API are on different hosts |
 
@@ -200,3 +258,5 @@ All 27 Review Flags are still `Open`, so quotes on those prices carry an amber "
 - **F11:** page-17 and page-18 monocartons are interpolated together until they are labelled as different builds.
 
 The sheet also stores mailer-bag sizes with repeated units (`6 × 8 in in in`). The loader cleans these up, but it's worth fixing in the sheet too.
+
+The full list of decisions waiting on the data owner (every flag, the HSN codes and the config assumptions), with the evidence for each, is in `docs/source-data-decisions.md`. None of them is guessed in code.

@@ -10,6 +10,10 @@ document take `?series=quotation|non_gst|gst` (default non_gst, the original inv
 Without DATABASE_URL (the default on Vercel) invoices aren't stored: POST /api/invoices
 still renders and returns the PDF, the client supplies the Bill No, and the routes that
 read stored invoices answer 503 STORAGE_DISABLED.
+
+Responses never name environment variables, files or exception text. Why invoicing is off
+is logged at startup and shown on the operator-only GET /api/admin/status; database failures
+answer 503 with an error id that is also in the log.
 """
 import logging
 import threading
@@ -19,14 +23,16 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..catalogue import Catalogue
+from ..errors import internal_error
 from ..settings import Settings
 from . import auth, gst, mailer, service
 from .config import InvoiceConfig
 from .models import InvoiceCreate, PaymentCreate, StaffLogin
 from .service import InvoiceError, Rendered
-from .store import Store
+from .store import SchemaNotReady, Store
 
 log = logging.getLogger("printevr.invoice")
 
@@ -81,16 +87,41 @@ def create_router(
         return {p.id: p.hsn_code for p in cat.products.values()} if cat else {}
     lock = threading.Lock()
 
-    def disabled_reason() -> str | None:
+    def disabled_cause() -> str | None:
+        """Why invoicing is off, for the log and the operator status page only."""
         # Without STAFF_PASSCODE there is no separate staff step: the site password alone
         # protects invoicing, so it must be set (invoicing is never open to anyone).
         if not settings.staff_passcode and not settings.site_password:
-            return "Invoicing isn't set up on this server (SITE_PASSWORD or STAFF_PASSCODE)"
+            return "neither SITE_PASSWORD nor STAFF_PASSCODE is set"
         if settings.staff_passcode and not settings.secret_key:
-            return "Invoicing isn't set up on this server (SECRET_KEY)"
+            return "STAFF_PASSCODE is set without SECRET_KEY"
         if invoice_cfg is None:
-            return "Invoicing isn't set up on this server (config/invoice.yaml failed to load)"
+            return "config/invoice.yaml failed to load (see the startup log)"
         return None
+
+    def disabled_reason() -> str | None:
+        """What the public is told when invoicing is off."""
+        return "Invoicing isn't set up on this server" if disabled_cause() else None
+
+    if disabled_cause():
+        log.warning("Invoicing is off: %s", disabled_cause())
+
+    def storage_error(exc: Exception) -> JSONResponse:
+        """A database problem, told to signed-in staff without internals."""
+        if isinstance(exc, SchemaNotReady):
+            log.error("invoice storage unavailable: %s", exc)
+            return error(
+                "STORAGE_NOT_READY",
+                "The invoice database needs updating. Ask the operator to run the database migrations.",
+                503,
+            )
+        return internal_error(
+            "STORAGE_UNAVAILABLE",
+            "The invoice database couldn't complete this request. Try again in a minute",
+            503,
+            context="invoice storage",
+            exc=exc,
+        )
 
     def get_store() -> Store | None:
         if not settings.database_url:
@@ -115,14 +146,16 @@ def create_router(
         blocked = guard(request)
         if blocked:
             return blocked
-        store = get_store()
-        if needs_store and store is None:
-            return error("STORAGE_DISABLED", "Invoices aren't saved on this server", 503)
         try:
+            store = get_store()
+            if needs_store and store is None:
+                return error("STORAGE_DISABLED", "Invoices aren't saved on this server", 503)
             return action(store)
         except InvoiceError as exc:
             log.info("invoice error code=%s", exc.code)
             return error(exc.code, exc.message, exc.http_status, exc.details)
+        except (SchemaNotReady, SQLAlchemyError) as exc:
+            return storage_error(exc)
 
     @router.post("/staff/login")
     def staff_login(body: StaffLogin, request: Request):
@@ -220,6 +253,8 @@ def create_router(
         return run(request, lambda store: service.delete(store, bill_no, series))
 
     state["disabled_reason"] = disabled_reason
+    state["disabled_cause"] = disabled_cause
+    state["storage_error"] = storage_error
     state["guard"] = guard
     state["get_store"] = get_store
     return router, state

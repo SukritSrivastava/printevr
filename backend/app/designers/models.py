@@ -33,7 +33,7 @@ SUMMARY_MAX = 300
 
 
 class DesignBase(DeclarativeBase):
-    """Separate from the invoice tables' Base, whose create_all runs on every start."""
+    """Separate from the invoice tables' Base (built only by migrations 0003+, never create_all)."""
 
 
 class Designer(DesignBase):

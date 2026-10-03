@@ -1,58 +1,15 @@
 // Cart lines and the unsaved checkout form (BRD-cart-invoice FR-C5): React state, saved to
-// localStorage after every change. This is the team's own site, so browser storage is fine.
-import { createContext, useContext, useEffect, useMemo, useReducer, useState } from 'react'
-import type { BillType, CartLine, ChangedLine, SpecLine } from '../api/invoiceTypes'
+// localStorage after every change. What is kept, and for how long, is in ./storage.ts.
+import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import type { CartLine, ChangedLine, SpecLine } from '../api/invoiceTypes'
+import { type Checkout, emptyCheckout, withoutCustomer } from './checkout'
+import { type CartState, FORGET_CUSTOMER_EVENT, customerExpired, loadCart, saveCart } from './storage'
 
-export const STORAGE_KEY = 'printevr.cart.v1'
+export { DEFAULTED, emptyCheckout, todayIST, type Checkout } from './checkout'
+export { STORAGE_KEY, type CartState } from './storage'
 
-export interface Checkout {
-  /** Ship To; on a GST invoice, the buyer (Billed to). */
-  business_name: string
-  contact_person: string
-  address: string
-  phone: string
-  /** The invoice number for the chosen bill type ('' = assign the next one on print). */
-  bill_no: string
-  /** Without storage only: the next quotation number on this device. */
-  quote_no: string
-  invoice_date: string // YYYY-MM-DD
-  billing_type: BillType | '' // '' = not chosen yet (no default)
-  gst_slab: string // a GstSlab key; '' = not picked yet
-  // GST invoice only
-  buyer_gstin: string
-  consignee_same: boolean
-  consignee_name: string
-  consignee_address: string
-  consignee_phone: string
-  consignee_gstin: string
-  delivery_terms: string
-  /** null = not touched: shows (and sends) the default from config/invoice.yaml */
-  payment_terms: string | null
-  po_date: string // YYYY-MM-DD or ''
-  gr_rr_no: string
-  transport: string | null
-  vehicle_no: string
-  eway_bill_no: string
-  station: string | null
-  saving_amount: string
-  /** Off = pay in full before printing (the default); on = advance_pct now, the rest before dispatch. */
-  split_payment: boolean
-  /** null = not touched: shows (and sends) the config's advance percent */
-  advance_pct: string | null
-}
-
-/** The GST invoice fields whose blank start shows a default (gst_field_defaults). */
-export const DEFAULTED = ['payment_terms', 'transport', 'station'] as const
-
-export interface CartState {
-  lines: CartLine[]
-  checkout: Checkout
-}
-
-/** Today's date in India (YYYY-MM-DD), whatever the device's time zone. */
-export function todayIST(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
-}
+/** How often an open page checks whether the customer details have expired. */
+const EXPIRY_CHECK_MS = 60 * 1000
 
 export function newId(): string {
   const c = globalThis.crypto as Crypto | undefined
@@ -63,35 +20,6 @@ export function newId(): string {
   })
 }
 
-export const emptyCheckout = (): Checkout => ({
-  business_name: '',
-  contact_person: '',
-  address: '',
-  phone: '',
-  bill_no: '',
-  quote_no: '1',
-  invoice_date: todayIST(),
-  billing_type: '',
-  gst_slab: '',
-  buyer_gstin: '',
-  consignee_same: true,
-  consignee_name: '',
-  consignee_address: '',
-  consignee_phone: '',
-  consignee_gstin: '',
-  delivery_terms: '',
-  payment_terms: null,
-  po_date: '',
-  gr_rr_no: '',
-  transport: null,
-  vehicle_no: '',
-  eway_bill_no: '',
-  station: null,
-  saving_amount: '',
-  split_payment: false,
-  advance_pct: null,
-})
-
 type Action =
   | { type: 'add'; lines: CartLine[] }
   | { type: 'update'; id: string; patch: Partial<CartLine> }
@@ -100,6 +28,7 @@ type Action =
   | { type: 'clear' }
   | { type: 'checkout'; patch: Partial<Checkout> }
   | { type: 'fresh'; changes: ChangedLine[] }
+  | { type: 'forgetCustomer' }
 
 /** A price counts as edited when it differs from the catalogue price. */
 export const isEdited = (l: CartLine) => l.catalogue_unit_price !== null && Number(l.unit_price) !== Number(l.catalogue_unit_price)
@@ -147,43 +76,8 @@ function reducer(state: CartState, action: Action): CartState {
       const byId = new Map(action.changes.map((c) => [c.id, c]))
       return { ...state, lines: state.lines.map((l) => (byId.has(l.id) ? withFreshPrice(l, byId.get(l.id)!) : l)) }
     }
-  }
-}
-
-const validSpec = (s: unknown): s is SpecLine => !!s && typeof (s as SpecLine).value === 'string'
-
-/**
- * A checkout saved by an older version: the bill type had a default (without_gst) and with_gst
- * meant the old GST rates, so neither counts as a choice; the salesperson is no longer asked for.
- */
-function migrateCheckout(saved: unknown): Checkout {
-  const raw = { ...((saved as Record<string, unknown>) ?? {}) }
-  delete raw.salesperson
-  delete raw.gst_option
-  if (raw.billing_type !== 'non_gst' && raw.billing_type !== 'gst') raw.billing_type = ''
-  return { ...emptyCheckout(), ...(raw as Partial<Checkout>) }
-}
-
-function load(): CartState {
-  const empty = { lines: [], checkout: emptyCheckout() }
-  let raw: string | null = null
-  try {
-    raw = localStorage.getItem(STORAGE_KEY)
-  } catch {
-    return empty
-  }
-  if (!raw) return empty
-  try {
-    const parsed = JSON.parse(raw) as Partial<CartState>
-    if (!Array.isArray(parsed.lines)) throw new Error('lines missing')
-    const lines = parsed.lines.filter(
-      (l): l is CartLine =>
-        !!l && typeof l.id === 'string' && typeof l.title === 'string' && Array.isArray(l.specs) && l.specs.every(validSpec),
-    )
-    return { lines, checkout: migrateCheckout(parsed.checkout) }
-  } catch (err) {
-    console.warn('Saved cart could not be read; starting with an empty cart.', err)
-    return empty
+    case 'forgetCustomer':
+      return { ...state, checkout: withoutCustomer(state.checkout) }
   }
 }
 
@@ -203,16 +97,37 @@ interface CartContextValue extends CartState {
 const CartContext = createContext<CartContextValue | null>(null)
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, undefined, load)
+  const [initial] = useState(() => loadCart())
+  const [state, dispatch] = useReducer(reducer, initial.state)
   const [customItem, setCustomItem] = useState<CustomPrefill | null>(null)
+  // When the checkout form last changed. Only a change to the form restarts the retention
+  // period: opening the page, or re-pricing the lines when the cart opens, doesn't.
+  const changedAt = useRef(initial.changedAt)
+  const savedCheckout = useRef(state.checkout)
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-    } catch {
-      /* storage full or blocked: the cart still works for this visit */
+    if (state.checkout !== savedCheckout.current) {
+      savedCheckout.current = state.checkout
+      changedAt.current = Date.now()
     }
+    saveCart(state, changedAt.current)
   }, [state])
+
+  // Customer details expire in an open page too, and go at once on Sign out.
+  const checkout = useRef(state.checkout)
+  checkout.current = state.checkout
+  useEffect(() => {
+    const check = () => {
+      if (customerExpired(checkout.current, changedAt.current)) dispatch({ type: 'forgetCustomer' })
+    }
+    const forget = () => dispatch({ type: 'forgetCustomer' })
+    const timer = setInterval(check, EXPIRY_CHECK_MS)
+    globalThis.addEventListener(FORGET_CUSTOMER_EVENT, forget)
+    return () => {
+      clearInterval(timer)
+      globalThis.removeEventListener(FORGET_CUSTOMER_EVENT, forget)
+    }
+  }, [])
 
   const value = useMemo<CartContextValue>(
     () => ({

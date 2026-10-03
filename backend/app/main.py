@@ -1,26 +1,34 @@
-"""HTTP routes (BRD section 7)."""
+"""HTTP routes (BRD section 7).
+
+Public responses carry no exception text, tracebacks, file paths or environment details:
+/api/health says only ok/error, and the details (load errors, why invoicing is off, schema
+and rate-limit state) are on GET /api/admin/status behind X-Admin-Token, and in the log.
+"""
 import hmac
+import ipaddress
 import logging
 import threading
 import time
-from collections import defaultdict, deque
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import auth
+from . import auth, migrations
 from .catalogue import Catalogue
 from .designers.routes import PATHS as DESIGNER_PATHS
 from .designers.routes import create_router as designer_router
+from .errors import error, install_handlers
 from .loader import LoaderError, load
 from .models import CalculateRequest, LoginRequest
 from .invoice import config as invoice_config
 from .invoice.from_quote import quote_with_drafts
+from .invoice.store import SchemaNotReady
 from .invoice.routes import EXPOSED_HEADERS, LOGIN_ATTEMPTS_PER_MINUTE as STAFF_LOGINS_PER_MINUTE
 from .invoice.routes import create_router as invoice_router
 from .quote import QuoteError
+from .ratelimit import DatabaseRateLimiter, MemoryRateLimiter
 from .settings import Settings, get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -28,13 +36,8 @@ log = logging.getLogger("printevr.api")
 calc_log = logging.getLogger("printevr.calc")
 
 LOGIN_ATTEMPTS_PER_MINUTE = 10
-
-
-def error(code: str, message: str, status: int, details: dict | None = None) -> JSONResponse:
-    return JSONResponse(
-        status_code=status,
-        content={"status": "error", "error": {"code": code, "message": message, "details": details or {}}},
-    )
+DATA_NOT_LOADED_MESSAGE = "The price sheet failed to load. The operator can find the reason in the server log."
+AUTH_NOT_CONFIGURED_MESSAGE = "Sign-in isn't set up on this server yet"
 
 
 class DataStore:
@@ -56,37 +59,23 @@ class DataStore:
             return catalogue
 
 
-class RateLimiter:
-    def __init__(self, per_minute: int):
-        self.per_minute = per_minute
-        self.hits: dict[str, deque] = defaultdict(deque)
-        self._lock = threading.Lock()
-
-    def allow(self, key: str) -> bool:
-        if self.per_minute <= 0:
-            return True
-        now = time.monotonic()
-        with self._lock:
-            q = self.hits[key]
-            while q and now - q[0] > 60:
-                q.popleft()
-            if len(q) >= self.per_minute:
-                return False
-            q.append(now)
-            return True
+def shared_limits(settings: Settings) -> bool:
+    """Whether login limits are counted in the database (shared by every instance)."""
+    if settings.rate_limit_backend == "auto":
+        url = settings.database_url or ""
+        return url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://"))
+    return settings.rate_limit_backend == "database" and bool(settings.database_url)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     store = DataStore(settings)
-    limiter = RateLimiter(settings.rate_limit_per_minute)
+    limiter = MemoryRateLimiter(settings.rate_limit_per_minute, settings.rate_limit_max_keys)
     try:
         store.reload()
     except LoaderError as exc:
         store.load_error = str(exc)
         log.error("PRICE DATA NOT LOADED: %s", exc)
-
-    login_limiter = RateLimiter(LOGIN_ATTEMPTS_PER_MINUTE)
 
     # Invoice settings; the calculator keeps working if this file is broken.
     try:
@@ -97,8 +86,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log.error("INVOICE CONFIG NOT LOADED: %s", exc)
 
     app = FastAPI(title="Printevr Pricing API", version="2.1")
+    install_handlers(app)
     app.state.store = store
     app.state.limiter = limiter
+    app.state.limits_shared = shared_limits(settings)
+
+    def limits_engine():
+        """The invoice database's engine for the shared login limits (None: count in memory).
+        Errors propagate: DatabaseRateLimiter logs them and falls back to memory."""
+        db = app.state.invoices["get_store"]()
+        return db.engine if db is not None else None
+
+    def login_limiter(scope: str, per_minute: int):
+        memory = MemoryRateLimiter(per_minute, settings.rate_limit_max_keys)
+        if not app.state.limits_shared:
+            return memory
+        return DatabaseRateLimiter(scope, per_minute, limits_engine, fallback=memory)
+
+    site_login_limiter = login_limiter("site_login", LOGIN_ATTEMPTS_PER_MINUTE)
+
+    def ip(request: Request) -> str:
+        return client_ip(request, settings)
 
     def signed_in(request: Request) -> bool:
         if settings.site_password is None:
@@ -108,11 +116,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.middleware("http")
     async def require_session(request: Request, call_next):
         path = request.url.path
-        # /api/admin/reload has its own token; the login flow and health check are open.
-        if not path.startswith("/api/") or path in auth.PUBLIC_PATHS or path == "/api/admin/reload":
+        # /api/admin/* has its own token; the login flow and health check are open.
+        if not path.startswith("/api/") or path in auth.PUBLIC_PATHS or path.startswith("/api/admin/"):
             return await call_next(request)
         if settings.site_password is None and settings.require_password:
-            return error("AUTH_NOT_CONFIGURED", "The site password isn't set on the server (SITE_PASSWORD)", 503)
+            return error("AUTH_NOT_CONFIGURED", AUTH_NOT_CONFIGURED_MESSAGE, 503)
         if not signed_in(request):
             return error("UNAUTHENTICATED", "Enter the password to continue", 401)
         return await call_next(request)
@@ -133,12 +141,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def login(body: LoginRequest, request: Request):
         if settings.site_password is None:
             if settings.require_password:
-                return error("AUTH_NOT_CONFIGURED", "The site password isn't set on the server (SITE_PASSWORD)", 503)
+                return error("AUTH_NOT_CONFIGURED", AUTH_NOT_CONFIGURED_MESSAGE, 503)
             return {"status": "ok"}
-        if not login_limiter.allow(client_ip(request, settings.trust_proxy_headers)):
+        if not site_login_limiter.allow(ip(request)):
             return error("RATE_LIMITED", "Too many attempts - wait a minute and try again", 429)
         if not auth.password_matches(body.password, settings.site_password):
-            log.warning("Failed login from %s", client_ip(request, settings.trust_proxy_headers))
+            log.warning("Failed login from %s", ip(request))
             return error("WRONG_PASSWORD", "That password isn't right", 401)
         response = JSONResponse({"status": "ok"})
         response.set_cookie(
@@ -165,16 +173,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         expose_headers=EXPOSED_HEADERS,
     )
 
+    staff_login_limiter = login_limiter("staff_login", STAFF_LOGINS_PER_MINUTE)
+    app.state.login_limiters = {"site": site_login_limiter, "staff": staff_login_limiter}
     router, app.state.invoices = invoice_router(
         settings,
         invoice_cfg,
         catalogue=lambda: store.catalogue,
         error=error,
-        client_ip=lambda request: client_ip(request, settings.trust_proxy_headers),
-        login_limiter=RateLimiter(STAFF_LOGINS_PER_MINUTE),
+        client_ip=ip,
+        login_limiter=staff_login_limiter,
     )
     app.include_router(router)
-    app.include_router(designer_router(app.state.invoices["get_store"], error))
+    app.include_router(designer_router(app.state.invoices["get_store"], error, app.state.invoices["storage_error"]))
+    if settings.site_password is None and settings.require_password:
+        log.error("SITE_PASSWORD is not set: every protected route answers 503 AUTH_NOT_CONFIGURED")
 
     @app.middleware("http")
     async def invoicing_switch(request: Request, call_next):
@@ -201,17 +213,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def catalogue_or_503() -> Catalogue | JSONResponse:
         if store.catalogue is None:
-            return error("DATA_NOT_LOADED", "Price data failed to load", 503, {"reason": store.load_error})
+            return error("DATA_NOT_LOADED", DATA_NOT_LOADED_MESSAGE, 503)
         return store.catalogue
+
+    def admin_check(request: Request) -> JSONResponse | None:
+        token = request.headers.get("X-Admin-Token", "")
+        if not settings.admin_token:
+            return error("FORBIDDEN", "This is turned off on this server", 403)
+        if not hmac.compare_digest(token.encode(), settings.admin_token.encode()):
+            return error("UNAUTHORIZED", "Missing or wrong X-Admin-Token", 401)
+        return None
 
     @app.get("/api/health")
     def health():
+        """Public, for uptime checks: only whether the price data is loaded."""
+        return {"status": "ok" if store.catalogue else "error"}
+
+    def storage_status() -> dict:
+        if not settings.database_url:
+            return {"configured": False}
+        try:
+            db = app.state.invoices["get_store"]()
+            return {"configured": True, "ready": True, "pending_migrations": migrations.pending(db.engine)}
+        except SchemaNotReady as exc:
+            return {"configured": True, "ready": False, "missing": exc.missing}
+        except Exception as exc:  # operator-only, but still never the connection string
+            return {"configured": True, "ready": False, "error": type(exc).__name__}
+
+    @app.get("/api/admin/status")
+    def admin_status(request: Request):
+        """Operator only (X-Admin-Token): what /api/health used to show, and why parts are off."""
+        denied = admin_check(request)
+        if denied:
+            return denied
         cat = store.catalogue
         return {
             "status": "ok" if cat else "error",
             "data_loaded_at": cat.loaded_at.isoformat() if cat else None,
             "source_file": cat.source_file if cat else None,
             "load_error": store.load_error,
+            "invoice_config_loaded": invoice_cfg is not None,
+            "invoicing_disabled": app.state.invoices["disabled_cause"](),
+            "storage": storage_status(),
+            "rate_limits": {"login": "database" if app.state.limits_shared else "memory", "calculate": "memory"},
             "counts": {
                 "categories": len(cat.categories),
                 "products": len(cat.products),
@@ -234,7 +278,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/calculate")
     def calculate_route(body: CalculateRequest, request: Request):
-        if not limiter.allow(client_ip(request, settings.trust_proxy_headers)):
+        if not limiter.allow(ip(request)):
             return error("RATE_LIMITED", "Too many quotes - try again in a minute", 429)
         cat = catalogue_or_503()
         if isinstance(cat, JSONResponse):
@@ -259,11 +303,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/admin/reload")
     def admin_reload(request: Request):
-        token = request.headers.get("X-Admin-Token", "")
-        if not settings.admin_token:
-            return error("FORBIDDEN", "Reload is disabled: ADMIN_TOKEN is not set", 403)
-        if not hmac.compare_digest(token.encode(), settings.admin_token.encode()):
-            return error("UNAUTHORIZED", "Missing or wrong X-Admin-Token", 401)
+        denied = admin_check(request)
+        if denied:
+            return denied
         try:
             cat = store.reload()
         except LoaderError as exc:
@@ -274,13 +316,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-def client_ip(request: Request, trust_proxy_headers: bool) -> str:
-    if trust_proxy_headers:
-        forwarded = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "")
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
-    return request.client.host if request.client else "unknown"
+def _peer_trusted(peer: str, trusted: tuple[str, ...]) -> bool:
+    if not trusted:
+        return True
+    try:
+        addr = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    for net in trusted:
+        try:
+            if addr in ipaddress.ip_network(net, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def client_ip(request: Request, settings: Settings) -> str:
+    """The address rate limits key on.
+
+    Forwarded headers are believed only with TRUST_PROXY_HEADERS=1 (on by default on Vercel,
+    whose edge overwrites them) and, if TRUSTED_PROXIES is set, only from those peers.
+    X-Forwarded-For is read from the right: each trusted proxy appends the address it saw,
+    so the entry TRUSTED_PROXY_HOPS from the end is the client and anything further left is
+    whatever the client sent. X-Real-IP is used only when there is no X-Forwarded-For.
+    """
+    peer = request.client.host if request.client else "unknown"
+    if not settings.trust_proxy_headers or not _peer_trusted(peer, settings.trusted_proxies):
+        return peer
+    chain = [p.strip() for h in request.headers.getlist("x-forwarded-for") for p in h.split(",") if p.strip()]
+    if chain:
+        return chain[-settings.trusted_proxy_hops] if len(chain) >= settings.trusted_proxy_hops else chain[0]
+    return request.headers.get("x-real-ip", "").strip() or peer
 
 
 def _loaded_at(store: DataStore) -> str | None:

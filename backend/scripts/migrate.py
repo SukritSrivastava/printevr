@@ -1,61 +1,55 @@
-"""Apply backend/migrations/*.sql to the hosted Postgres, in order, each once.
+"""Apply backend/migrations/ to a database, in order, each once.
 
     python backend/scripts/migrate.py            # apply what's new
     python backend/scripts/migrate.py --status   # list applied and pending files, change nothing
 
 The database comes from DATABASE_URL_UNPOOLED (Neon's direct connection, best for schema
-changes), else DATABASE_URL. Applied files are recorded in `schema_migrations`; each file runs
-in its own transaction, so a failing file leaves nothing half-done. Never edit a file that has
-been applied: add a new one.
+changes), else DATABASE_URL. Postgres and SQLite (`sqlite:///path/to/invoices.db`) both work;
+SQLite skips the Postgres-only .sql files, and the app also applies its migrations by itself
+on SQLite. Applied files are recorded in `schema_migrations`; each file runs in its own
+transaction under a lock, so a failing file leaves nothing half-done and running this from
+several places at once is safe (app/migrations.py). Never edit a file that has been applied:
+add a new one.
 """
 import argparse
 import os
 import sys
 from pathlib import Path
 
-import psycopg
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
+from sqlalchemy import create_engine  # noqa: E402
+
+from app import migrations  # noqa: E402
+from app.invoice.store import engine_options, normalize_url  # noqa: E402
+
+MIGRATIONS = migrations.MIGRATIONS_DIR
 
 
 def database_url() -> str:
     for name in ("DATABASE_URL_UNPOOLED", "DATABASE_URL"):
         value = os.getenv(name, "").strip()
         if value:
-            return value.replace("postgresql+psycopg://", "postgresql://", 1)
-    sys.exit("Set DATABASE_URL_UNPOOLED (or DATABASE_URL) to the Postgres connection string.")
+            return value
+    sys.exit("Set DATABASE_URL_UNPOOLED (or DATABASE_URL) to the database's connection string.")
 
 
-def migration_files() -> list[Path]:
-    return sorted(MIGRATIONS.glob("[0-9][0-9][0-9][0-9]_*.sql"))
+def migration_files() -> list[migrations.Migration]:
+    return migrations.migration_files()
 
 
-def applied(conn: psycopg.Connection) -> set[str]:
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_migrations ("
-        " version VARCHAR(200) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-    )
-    conn.commit()
-    return {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}
+def engine_for(url: str):
+    url = normalize_url(url)
+    return create_engine(url, **engine_options(url))
 
 
 def migrate(url: str, status_only: bool = False, out=print) -> list[str]:
-    """Applies pending files; returns their names."""
-    with psycopg.connect(url, prepare_threshold=None) as conn:
-        done = applied(conn)
-        pending = [f for f in migration_files() if f.name not in done]
-        for f in migration_files():
-            out(f"{'applied' if f.name in done else 'pending'}  {f.name}")
-        if status_only:
-            return [f.name for f in pending]
-        for f in pending:
-            with conn.transaction():
-                conn.execute(f.read_text(encoding="utf-8"))
-                conn.execute("INSERT INTO schema_migrations (version) VALUES (%s)", (f.name,))
-            out(f"applied  {f.name}  (just now)")
-        if not pending:
-            out("Nothing to apply: the database is up to date.")
-        return [f.name for f in pending]
+    """Applies pending files; returns their names (with status_only, the pending ones)."""
+    engine = engine_for(url)
+    try:
+        return migrations.migrate(engine, status_only=status_only, out=out)
+    finally:
+        engine.dispose()
 
 
 def main() -> None:

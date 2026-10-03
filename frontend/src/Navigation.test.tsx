@@ -303,5 +303,5 @@ describe('navigation', () => {
 })
 
 function savedCartWith(line: CartLine, checkout: Record<string, string> = {}) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ lines: [line], checkout }))
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, saved_at: Date.now(), lines: [line], checkout }))
 }

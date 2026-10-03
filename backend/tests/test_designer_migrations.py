@@ -35,7 +35,9 @@ def test_migration_files_are_numbered_and_unique():
 @needs_postgres
 def test_migrations_apply_once_and_seed(pg_url):
     lines: list[str] = []
-    assert migrate.migrate(pg_url, out=lines.append) == ["0001_designer_jobs.sql", "0002_seed_designers.sql"]
+    assert migrate.migrate(pg_url, out=lines.append) == [
+        "0001_designer_jobs.sql", "0002_seed_designers.sql", "0003_invoice_tables.py", "0004_rate_limits.py",
+    ]
     assert migrate.migrate(pg_url, out=lines.append) == []  # already applied
     with psycopg.connect(pg_url) as conn:
         assert conn.execute("SELECT name, rotation_order, active FROM designers ORDER BY rotation_order").fetchall() == [

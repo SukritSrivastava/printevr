@@ -167,7 +167,7 @@ function renderApp() {
 }
 
 function savedCart(lines: CartLine[], checkout: Record<string, string> = {}) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ lines, checkout }))
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, saved_at: Date.now(), lines, checkout }))
 }
 
 const catalogueLine = (quantity = 350): CartLine => ({
