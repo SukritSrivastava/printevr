@@ -90,3 +90,37 @@ class JobStatusHistory(DesignBase):
 
 
 SEED_DESIGNERS = (("Namit", 1), ("Ajendra", 2))
+
+
+class DesignItemBase(DeclarativeBase):
+    """Per-product design tables, built by migration 0007 on every database (not create_all),
+    so they are kept out of DesignBase."""
+
+
+class DesignItem(DesignItemBase):
+    """One product's design: a product is one non-add-on line of the job's invoice (line_no =
+    its position in the stored lines). designer_id None = the order's designer. No row = the
+    order's designer, status 1, no vendor."""
+
+    __tablename__ = "design_items"
+
+    job_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    line_no: Mapped[int] = mapped_column(Integer, primary_key=True)
+    designer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    vendor_name: Mapped[str | None] = mapped_column(String(VENDOR_MAX), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DesignItemHistory(DesignItemBase):
+    __tablename__ = "design_item_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_status: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    new_status: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+ITEM_TABLES = ("design_items", "design_item_history")

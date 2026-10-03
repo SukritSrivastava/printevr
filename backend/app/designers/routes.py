@@ -32,6 +32,12 @@ class DesignerUpdate(_Body):
     active: bool | None = None
 
 
+class ProductUpdate(_Body):
+    designer_id: int | None = None
+    status: int | None = Field(default=None, ge=1, le=4, strict=True)
+    vendor_name: str | None = Field(default=None, max_length=500)
+
+
 class JobUpdate(_Body):
     status: int | None = Field(default=None, ge=1, le=4, strict=True)
     vendor_name: str | None = Field(default=None, max_length=500)
@@ -86,6 +92,13 @@ def create_router(
         if changes.get("status", 0) is None:
             return error("VALIDATION_ERROR", "Status must be 1 to 4", 422, {"field": "status"})
         return run(lambda s: service.update_job(s, job_id, changes))
+
+    @router.patch("/jobs/{job_id}/products/{line_no}")
+    def patch_product(job_id: int, line_no: int, body: ProductUpdate):
+        changes = body.model_dump(include=body.model_fields_set)
+        if changes.get("status", 0) is None:
+            return error("VALIDATION_ERROR", "Status must be 1 to 4", 422, {"field": "status"})
+        return run(lambda s: service.update_product(s, job_id, line_no, changes))
 
     @router.get("/jobs/{job_id}/history")
     def get_history(job_id: int):

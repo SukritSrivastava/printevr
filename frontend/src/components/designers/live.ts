@@ -3,7 +3,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { ApiError, NetworkError } from '../../api/client'
-import { updateJob, type DesignerLoad, type Job, type JobChange } from '../../api/designers'
+import { updateJob, updateProduct, type DesignerLoad, type Designer, type Job, type JobChange, type ProductChange } from '../../api/designers'
 import { PENDING_STATUSES, REFRESH_MS, statusLabel } from '../../lib/designers'
 import { StaffCancelled, useStaff } from '../StaffLoginDialog'
 import { useToast } from '../Toast'
@@ -73,6 +73,55 @@ export function useJobUpdate() {
         d
           ? { ...d, designers: d.designers.map((x) => ({ ...x, jobs: x.jobs.map((j) => (j.id === id ? patchJob(j, change) : j)) })) }
           : d,
+      )
+      return { before }
+    },
+    onError: (err, _vars, ctx) => {
+      ctx?.before.forEach(([key, data]) => qc.setQueryData(key, data))
+      if (!(err instanceof StaffCancelled)) toast(`Not saved: ${describe(err)}`)
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: [ROOT] }),
+  })
+}
+
+function patchProduct(job: Job, lineNo: number, change: ProductChange, designers: Designer[]): Job {
+  if (!job.products) return job
+  return {
+    ...job,
+    products: job.products.map((p) => {
+      if (p.line_no !== lineNo) return p
+      const next = { ...p }
+      if (change.status !== undefined) {
+        next.status = change.status
+        next.status_label = statusLabel(change.status)
+        next.pending = PENDING_STATUSES.includes(change.status)
+      }
+      if (change.vendor_name !== undefined) next.vendor_name = change.vendor_name?.trim().replace(/\s+/g, ' ') || null
+      if (change.designer_id !== undefined) {
+        next.designer_id = change.designer_id
+        next.designer_inherited = change.designer_id === null
+        next.designer_name =
+          change.designer_id === null ? job.designer_name : (designers.find((d) => d.id === change.designer_id)?.name ?? null)
+      }
+      return next
+    }),
+  }
+}
+
+/** Saves one product's design change at once; other products and the order are untouched. */
+export function useProductUpdate() {
+  const qc = useQueryClient()
+  const withStaff = useStaff()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: ({ id, lineNo, change }: { id: number; lineNo: number; change: ProductChange }) =>
+      withStaff(() => updateProduct(id, lineNo, change)),
+    onMutate: async ({ id, lineNo, change }) => {
+      await qc.cancelQueries({ queryKey: [ROOT] })
+      const before = qc.getQueriesData({ queryKey: [ROOT] })
+      const designers = qc.getQueryData<Designer[]>([ROOT, 'designers']) ?? []
+      qc.setQueriesData<JobsData>({ queryKey: [ROOT, 'jobs'] }, (d) =>
+        d ? { ...d, jobs: d.jobs.map((j) => (j.id === id ? patchProduct(j, lineNo, change, designers) : j)) } : d,
       )
       return { before }
     },

@@ -7,6 +7,7 @@ export const CALCULATOR = '/'
 export const CART = '/cart'
 export const INVOICES = '/invoices'
 export const DESIGNERS = '/designers'
+export const PRODUCTION = '/production'
 export const LOGIN = '/login'
 
 /** FR-B2: calculator edits reach the URL this long after the last change. */

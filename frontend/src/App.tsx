@@ -13,6 +13,7 @@ import { CartPage } from './components/CartPage'
 import { CustomItemDialog } from './components/CustomItemDialog'
 import { DesignersPage } from './components/designers/DesignersPage'
 import { InvoicesPage } from './components/InvoicesPage'
+import { ProductionPage } from './components/production/ProductionPage'
 import { StaffProvider } from './components/StaffLoginDialog'
 import { ToastProvider } from './components/Toast'
 import { CustomSizeInputs } from './components/CustomSizeInputs'
@@ -24,7 +25,7 @@ import { TierSlider, type ServerTier } from './components/TierSlider'
 import { defaultConfig, fromSearch, toSearch, type CalcConfig } from './lib/calcUrl'
 import { count, qtyWithUnit } from './lib/format'
 import { CUSTOM_SIZE, DIM_FIELDS, dimensionError, findItem, normalize, quantityError, supportsCustom } from './lib/selection'
-import { CALCULATOR, CART, CalculatorLinkProvider, DESIGNERS, INVOICES, LOGIN, useAppNav, useCalculatorUrl, useDocumentTitle, useHistoryTracking } from './nav'
+import { CALCULATOR, CART, CalculatorLinkProvider, DESIGNERS, INVOICES, LOGIN, PRODUCTION, useAppNav, useCalculatorUrl, useDocumentTitle, useHistoryTracking } from './nav'
 
 export const DEBOUNCE_MS = 250
 
@@ -136,10 +137,10 @@ function CatalogGate({ onSignedOut }: { onSignedOut: () => void }) {
   return <Workspace catalog={catalogQuery.data} onSignedOut={onSignedOut} />
 }
 
-type View = 'calculator' | 'cart' | 'invoices' | 'designers'
+type View = 'calculator' | 'cart' | 'invoices' | 'designers' | 'production'
 
-const VIEW_PATHS: Record<View, string> = { calculator: CALCULATOR, cart: CART, invoices: INVOICES, designers: DESIGNERS }
-const TITLES: Record<string, string> = { [CALCULATOR]: 'Calculator', [CART]: 'Cart', '/checkout': 'Cart', [INVOICES]: 'Invoices', [DESIGNERS]: 'Designer Assignment' }
+const VIEW_PATHS: Record<View, string> = { calculator: CALCULATOR, cart: CART, invoices: INVOICES, designers: DESIGNERS, production: PRODUCTION }
+const TITLES: Record<string, string> = { [CALCULATOR]: 'Calculator', [CART]: 'Cart', '/checkout': 'Cart', [INVOICES]: 'Invoices', [DESIGNERS]: 'Designer Assignment', [PRODUCTION]: 'Production' }
 
 /** Calculator, Cart, Invoices and Designer Assignment. The stores sit above the screens, so switching screens keeps them. */
 function Workspace({ catalog, onSignedOut }: { catalog: Catalog; onSignedOut: () => void }) {
@@ -177,8 +178,9 @@ function Screens({
   const { go, backTo } = useAppNav()
   // Servers without storage have nothing to list, so the Invoices tab only shows when they store.
   const showInvoices = settingsQuery.data?.storage ?? false
-  // Design jobs live in the same database, so the Designer Assignment tab follows the same rule.
-  const found = (v: View) => VIEW_PATHS[v] === pathname && ((v !== 'invoices' && v !== 'designers') || showInvoices)
+  // Design and production jobs live in the same database, so their tabs follow the same rule.
+  const stored: View[] = ['invoices', 'designers', 'production']
+  const found = (v: View) => VIEW_PATHS[v] === pathname && (!stored.includes(v) || showInvoices)
   const view = (Object.keys(VIEW_PATHS) as View[]).find(found) ?? null
   useDocumentTitle(view || pathname === '/checkout' ? TITLES[pathname] : 'Page not found')
   return (
@@ -194,6 +196,7 @@ function Screens({
         <Route path="/checkout" element={<Navigate to={CART} replace />} />
         {showInvoices && <Route path={INVOICES} element={<InvoicesPage />} />}
         {showInvoices && <Route path={DESIGNERS} element={<DesignersPage />} />}
+        {showInvoices && <Route path={PRODUCTION} element={<ProductionPage />} />}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </>
@@ -249,6 +252,7 @@ function ViewTabs({ view, onView, showInvoices }: { view: View | null; onView: (
         )}
         {showInvoices && tab('invoices', 'Invoices')}
         {showInvoices && tab('designers', 'Designer Assignment', 'whitespace-nowrap')}
+        {showInvoices && tab('production', 'Production')}
       </div>
     </nav>
   )

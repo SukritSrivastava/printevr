@@ -637,7 +637,7 @@ describe('cart', () => {
     renderApp()
     await openCart(user)
     const nav = screen.getByRole('navigation', { name: 'Sections' })
-    expect(within(nav).getAllByRole('button').map((b) => b.textContent?.replace(/\d+$/, ''))).toEqual(['Calculator', 'Cart', 'Invoices', 'Designer Assignment'])
+    expect(within(nav).getAllByRole('button').map((b) => b.textContent?.replace(/\d+$/, ''))).toEqual(['Calculator', 'Cart', 'Invoices', 'Designer Assignment', 'Production'])
     await user.click(within(nav).getByRole('button', { name: 'Invoices' }))
     expect(window.location.pathname).toBe('/invoices')
     expect(within(nav).getByRole('button', { name: 'Invoices' })).toHaveAttribute('aria-current', 'page')

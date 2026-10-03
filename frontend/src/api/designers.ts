@@ -24,6 +24,40 @@ export interface Job {
   pending: boolean
   vendor_name: string | null
   updated_at: string
+  /** The order's products, each with its own design (jobs board and history only). */
+  products?: ProductDesign[]
+}
+
+/** One product of the order (a non-add-on invoice line) and its own design. */
+export interface ProductDesign {
+  /** Position of the line in the invoice; identifies the product. */
+  line_no: number
+  title: string
+  quantity: string
+  unit_label: string
+  details: string[]
+  addons: string[]
+  /** The product's own designer; null = the order's designer. */
+  designer_id: number | null
+  /** Who designs it (its own designer, else the order's). */
+  designer_name: string | null
+  designer_inherited: boolean
+  status: JobStatus
+  status_label: string
+  pending: boolean
+  vendor_name: string | null
+  updated_at: string | null
+}
+
+export interface ProductChange {
+  designer_id?: number | null
+  status?: JobStatus
+  vendor_name?: string | null
+}
+
+export interface ProductHistoryEntry extends HistoryEntry {
+  line_no: number
+  title: string
 }
 
 export interface JobFilters {
@@ -72,7 +106,11 @@ export function fetchJobs(filters: JobFilters): Promise<{ jobs: Job[]; total: nu
 export const updateJob = (id: number, change: JobChange) =>
   json<Job>(`/api/jobs/${id}`, { method: 'PATCH', body: JSON.stringify(change) })
 
-export const fetchHistory = (id: number) => json<{ job: Job; history: HistoryEntry[] }>(`/api/jobs/${id}/history`)
+export const fetchHistory = (id: number) =>
+  json<{ job: Job; history: HistoryEntry[]; product_history: ProductHistoryEntry[] }>(`/api/jobs/${id}/history`)
+
+export const updateProduct = (id: number, lineNo: number, change: ProductChange) =>
+  json<Job>(`/api/jobs/${id}/products/${lineNo}`, { method: 'PATCH', body: JSON.stringify(change) })
 
 export const fetchWorkload = () =>
   json<{ designers: DesignerLoad[]; unassigned_pending: number }>('/api/workload')

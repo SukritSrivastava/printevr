@@ -1,10 +1,11 @@
 // View A: every job, newest first, with filters. A table on wide screens, cards on phones.
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { fetchJobs, type Designer, type Job, type JobFilters } from '../../api/designers'
 import { JOB_STATUSES, type JobStatus } from '../../lib/designers'
 import { money } from '../../lib/format'
 import { HistoryDialog, invoiceLabel, StatusSelect, VendorInput, When } from './JobControls'
 import { describe, useLive, useNow } from './live'
+import { ProductDesigns } from './ProductDesigns'
 
 const SEARCH_DEBOUNCE_MS = 300
 
@@ -116,7 +117,8 @@ export function JobsBoard({ designers }: { designers: Designer[] }) {
               </thead>
               <tbody>
                 {jobs.map((job) => (
-                  <tr key={job.id} className="border-b border-rule align-top last:border-0">
+                  <Fragment key={job.id}>
+                  <tr className={`align-top ${job.products?.length ? '' : 'border-b border-rule last:border-0'}`}>
                     <td className="px-3 py-2">
                       <button type="button" className="font-semibold text-cyan-deep underline-offset-2 hover:underline" onClick={() => setOpen(job)}>
                         {invoiceLabel(job)}
@@ -143,6 +145,14 @@ export function JobsBoard({ designers }: { designers: Designer[] }) {
                       <When iso={job.updated_at} now={now} />
                     </td>
                   </tr>
+                  {job.products && job.products.length > 0 && (
+                    <tr className="border-b border-rule last:border-0">
+                      <td colSpan={7} className="px-3 pb-3">
+                        <ProductDesigns job={job} designers={designers} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -168,6 +178,7 @@ export function JobsBoard({ designers }: { designers: Designer[] }) {
                 </p>
                 <StatusSelect job={job} />
                 <VendorInput job={job} />
+                <ProductDesigns job={job} designers={designers} />
                 <p className="text-xs text-ink-soft">
                   Updated <When iso={job.updated_at} now={now} inline />
                 </p>

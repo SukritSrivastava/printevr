@@ -22,6 +22,8 @@ from .designers.routes import create_router as designer_router
 from .errors import error, install_handlers
 from .loader import LoaderError, load
 from .models import CalculateRequest, LoginRequest
+from .production.routes import PATHS as PRODUCTION_PATHS
+from .production.routes import create_router as production_router
 from .invoice import config as invoice_config
 from .invoice.from_quote import quote_with_drafts
 from .invoice.store import SchemaNotReady
@@ -185,6 +187,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(router)
     app.include_router(designer_router(app.state.invoices["get_store"], error, app.state.invoices["storage_error"]))
+    app.include_router(production_router(app.state.invoices["get_store"], error, app.state.invoices["storage_error"]))
     if settings.site_password is None and settings.require_password:
         log.error("SITE_PASSWORD is not set: every protected route answers 503 AUTH_NOT_CONFIGURED")
 
@@ -198,7 +201,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 reason = app.state.invoices["disabled_reason"]()
                 if reason:
                     return error("INVOICING_DISABLED", reason, 503)
-            elif path.startswith("/api/invoices") or path.startswith(DESIGNER_PATHS):
+            elif path.startswith("/api/invoices") or path.startswith(DESIGNER_PATHS) or path.startswith(PRODUCTION_PATHS):
                 blocked = app.state.invoices["guard"](request)
                 if blocked:
                     return blocked

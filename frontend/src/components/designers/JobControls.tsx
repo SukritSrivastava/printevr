@@ -112,6 +112,24 @@ export function HistoryDialog({ job, now, onClose }: { job: Job; now: number; on
           ))}
         </ol>
       )}
+      {query.data && query.data.product_history.length > 0 && (
+        <>
+          <h3 className="mt-5 font-semibold">Products</h3>
+          <ol className="mt-2 flex flex-col gap-3 border-l-2 border-rule pl-4">
+            {query.data.product_history.map((h, i) => (
+              <li key={i} className="relative">
+                <span className="absolute top-1.5 -left-[1.4rem] size-2.5 rounded-full bg-cyan-soft" aria-hidden />
+                <p className="text-sm text-ink-soft">{h.title}</p>
+                <p className="font-semibold">
+                  {h.new_status}. {h.new_label}
+                  {h.old_status !== null && h.old_status > h.new_status && <span className="ml-2 text-xs font-normal text-warn">moved back</span>}
+                </p>
+                <When iso={h.changed_at} now={now} />
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
       <div className="mt-5 flex justify-end">
         <button type="button" className="rounded-md px-4 py-2 font-semibold ring-1 ring-rule" onClick={onClose} data-close>
           Close

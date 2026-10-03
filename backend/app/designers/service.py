@@ -12,13 +12,14 @@ import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import case, delete, func, or_, select
+from sqlalchemy import case, delete, func, inspect, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..products import products as invoice_products
 from .models import (
-    JOB_SERIES, NAME_MAX, PENDING_STATUSES, STATUSES, SUMMARY_MAX, VENDOR_MAX, Designer, DesignJob,
-    JobStatusHistory, RotationState,
+    ITEM_TABLES, JOB_SERIES, NAME_MAX, PENDING_STATUSES, STATUSES, SUMMARY_MAX, VENDOR_MAX, Designer, DesignItem,
+    DesignItemHistory, DesignJob, JobStatusHistory, RotationState,
 )
 from .schema import db_now
 
@@ -127,6 +128,9 @@ def delete_jobs_for_invoice(session: Session, series: str, bill_no: int) -> None
     job = find_job(session, series, bill_no)
     if job is not None:
         session.execute(delete(JobStatusHistory).where(JobStatusHistory.job_id == job.id))
+        if items_ready(session):
+            session.execute(delete(DesignItemHistory).where(DesignItemHistory.job_id == job.id))
+            session.execute(delete(DesignItem).where(DesignItem.job_id == job.id))
         session.delete(job)
 
 
@@ -238,9 +242,11 @@ def list_jobs(
             conds.append(DesignJob.bill_no == int(digits))
         query = query.where(or_(*conds))
     total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
-    jobs = session.scalars(query.order_by(DesignJob.assigned_at.desc(), DesignJob.id.desc()).limit(limit))
+    jobs = list(session.scalars(query.order_by(DesignJob.assigned_at.desc(), DesignJob.id.desc()).limit(limit)))
     names = _names(session)
-    return {"jobs": [job_json(j, names) for j in jobs], "total": total}
+    out = [job_json(j, names) for j in jobs]
+    attach_products(session, jobs, out, names)
+    return {"jobs": out, "total": total}
 
 
 def clean_vendor(value: str | None) -> str | None:
@@ -284,8 +290,28 @@ def history(session: Session, job_id: int) -> dict:
     rows = session.scalars(
         select(JobStatusHistory).where(JobStatusHistory.job_id == job_id).order_by(JobStatusHistory.id)
     )
+    names = _names(session)
+    out = job_json(job, names)
+    attach_products(session, [job], [out], names)
+    titles = {p["line_no"]: p["title"] for p in out["products"]}
+    product_history = []
+    if items_ready(session):
+        product_history = [
+            {
+                "line_no": h.line_no,
+                "title": titles.get(h.line_no, f"Product {h.line_no + 1}"),
+                "old_status": h.old_status,
+                "new_status": h.new_status,
+                "new_label": STATUSES[h.new_status],
+                "changed_at": utc_iso(h.changed_at),
+            }
+            for h in session.scalars(
+                select(DesignItemHistory).where(DesignItemHistory.job_id == job_id).order_by(DesignItemHistory.id)
+            )
+        ]
     return {
-        "job": job_json(job, _names(session)),
+        "product_history": product_history,
+        "job": out,
         "history": [
             {
                 "old_status": h.old_status,
@@ -345,3 +371,109 @@ def workload(session: Session, jobs_per_designer: int = 50) -> dict:
         )
     unassigned = sum(n for designer_id, status, n in counts if designer_id is None and status in PENDING_STATUSES)
     return {"designers": out, "unassigned_pending": unassigned}
+
+
+# ---------- products ----------
+# A design job's products are the non-add-on lines of its invoice (app/products.py). Each has its
+# own designer (None = the order's designer), status and vendor, in design_items; a product
+# without a row is at status 1 with the order's designer and no vendor.
+
+def items_ready(session: Session) -> bool:
+    """Whether migration 0007's per-product tables are there."""
+    have = set(inspect(session.get_bind()).get_table_names())
+    return all(t in have for t in ITEM_TABLES)
+
+
+def _invoice_lines(session: Session, jobs: list[DesignJob]) -> dict[tuple[str, int], list]:
+    from ..invoice.store import ROW_CLASSES  # imported here: the invoice package imports this module
+
+    out: dict[tuple[str, int], list] = {}
+    for series in JOB_SERIES:
+        numbers = {j.bill_no for j in jobs if j.series == series}
+        if numbers:
+            row = ROW_CLASSES[series]
+            for bill_no, lines in session.execute(select(row.bill_no, row.lines).where(row.bill_no.in_(numbers))):
+                out[(series, bill_no)] = lines
+    return out
+
+
+def product_json(product: dict, item: DesignItem | None, job: DesignJob, names: dict[int, str]) -> dict:
+    own = item.designer_id if item else None
+    designer_id = own if own is not None else job.designer_id
+    status = item.status if item else 1
+    return {
+        **product,
+        "designer_id": own,
+        "designer_name": names.get(designer_id) if designer_id is not None else None,
+        "designer_inherited": own is None,
+        "status": status,
+        "status_label": STATUSES[status],
+        "pending": status in PENDING_STATUSES,
+        "vendor_name": item.vendor_name if item else None,
+        "updated_at": utc_iso(item.updated_at) if item else None,
+    }
+
+
+def attach_products(session: Session, jobs: list[DesignJob], out: list[dict], names: dict[int, str]) -> None:
+    """Adds `products` to each job's JSON (empty until migration 0007 has run)."""
+    ready = items_ready(session)
+    lines = _invoice_lines(session, jobs) if ready else {}
+    items: dict[tuple[int, int], DesignItem] = {}
+    if ready and jobs:
+        for item in session.scalars(select(DesignItem).where(DesignItem.job_id.in_([j.id for j in jobs]))):
+            items[(item.job_id, item.line_no)] = item
+    for job, data in zip(jobs, out):
+        found = invoice_products(lines.get((job.series, job.bill_no)))
+        data["products"] = [product_json(p, items.get((job.id, p["line_no"])), job, names) for p in found]
+
+
+def update_product(session: Session, job_id: int, line_no: int, changes: dict) -> dict:
+    """One product's `designer_id` (None = the order's designer), `status` (1-4) and/or
+    `vendor_name`. Other products and the order itself are untouched. Answers the whole job."""
+    if not items_ready(session):
+        raise DesignerError(
+            "DESIGNERS_NOT_SET_UP", "The per-product design tables aren't in the database yet: run the migrations", 503
+        )
+    job = session.get(DesignJob, job_id)
+    if job is None:
+        raise _not_found("Job", job_id)
+    lines = _invoice_lines(session, [job]).get((job.series, job.bill_no))
+    if line_no not in [p["line_no"] for p in invoice_products(lines)]:
+        raise DesignerError("NOT_FOUND", f"The invoice has no product {line_no}", 404, {"field": "line_no"})
+    item = session.get(DesignItem, (job_id, line_no))
+    if item is None:
+        item = DesignItem(job_id=job_id, line_no=line_no, designer_id=None, status=1, vendor_name=None,
+                          updated_at=db_now(session))
+        session.add(item)
+    changed = False
+    if "designer_id" in changes and changes["designer_id"] != item.designer_id:
+        if changes["designer_id"] is not None and session.get(Designer, changes["designer_id"]) is None:
+            raise _not_found("Designer", changes["designer_id"])
+        item.designer_id = changes["designer_id"]
+        changed = True
+    if "status" in changes and changes["status"] != item.status:
+        new = changes["status"]
+        if new not in STATUSES:
+            raise DesignerError("VALIDATION_ERROR", "Status must be 1 to 4", 422, {"field": "status"})
+        session.add(DesignItemHistory(job_id=job_id, line_no=line_no, old_status=item.status, new_status=new,
+                                      changed_at=db_now(session)))
+        item.status = new
+        changed = True
+    if "vendor_name" in changes:
+        vendor = clean_vendor(changes["vendor_name"])
+        if vendor != item.vendor_name:
+            item.vendor_name = vendor
+            changed = True
+    if not changed:
+        session.rollback()
+    else:
+        item.updated_at = db_now(session)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            raise DesignerError("CONFLICT", "Someone else just changed this product - refresh and try again", 409) from None
+    names = _names(session)
+    out = job_json(job, names)
+    attach_products(session, [job], [out], names)
+    return out

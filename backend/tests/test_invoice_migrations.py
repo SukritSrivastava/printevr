@@ -22,7 +22,7 @@ from app.settings import get_settings
 from .pg import migrate, needs_postgres, temp_schema
 from .test_invoice_api import PASSCODE
 
-ALL = ["0003_invoice_tables.py", "0004_rate_limits.py"]
+ALL = ["0003_invoice_tables.py", "0004_rate_limits.py", "0005_production.py", "0006_production_stages.py", "0007_product_tracking.py"]
 PG_ALL = ["0001_designer_jobs.sql", "0002_seed_designers.sql", *ALL]
 
 # The first invoice schema, exactly as create_all() made it before GST invoices, quotations,
