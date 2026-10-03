@@ -23,8 +23,8 @@ def test_non_gst_unpaid_reprint_is_identical(client, auth):  # noqa: F811
     third = client.get(f"/api/invoices/{bill_no}/pdf", headers=auth)
     assert again.status_code == third.status_code == 200
     assert first.content == again.content == third.content
-    # Band and logo only, on the first print and on every reprint: no QR code appears or disappears.
-    assert images(first.content) == images(again.content) == [2]
+    # Band, logo and UPI QR, on the first print and on every reprint.
+    assert images(first.content) == images(again.content) == [3]
 
 
 def text_of(data: bytes) -> str:
@@ -57,9 +57,14 @@ def test_print_paid_and_unpaid_differ_only_by_the_receivables(client, auth):  # 
     ta, tb = text_of(unpaid.content), text_of(paid.content)
     assert "RECIEVABLES" not in ta and "RECIEVABLES" in tb
     assert "PENDING AMOUNT (TO BE PAID) :- 0/- (PAID IN FULL)" in tb
-    # Apart from the bill number and the RECIEVABLES box, the pages say the same.
+    assert "Received Amount:- Rs. 0/-" in ta and "Amount Pending:- Rs. 26250/-" in ta
+    assert "Received Amount:- Rs. 26250/-" in tb and "Amount Pending:- Rs. 0/-" in tb
+    # Apart from the bill number, the received/pending amounts and the RECIEVABLES box, the pages say the same.
     receivables = tb[tb.index("RECIEVABLES"):tb.index("PAID IN FULL)") + len("PAID IN FULL)")]
-    assert ta.replace("500", "501") == tb.replace(receivables + "\n", "")
+    tb = tb.replace(receivables + "\n", "")
+    tb = tb.replace("Received Amount:- Rs. 26250/-", "Received Amount:- Rs. 0/-")
+    tb = tb.replace("Amount Pending:- Rs. 0/-", "Amount Pending:- Rs. 26250/-")
+    assert ta.replace("500", "501") == tb
 
 
 def test_gst_reprint_is_identical(client, auth):  # noqa: F811

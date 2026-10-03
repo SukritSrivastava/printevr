@@ -116,7 +116,8 @@ def _email(raw: dict | None) -> dict | None:
     return email
 
 
-SUMMARY_KEYS = ("total", "advance", "balance", "receivables_title", "received", "pending", "paid_in_full", "modes")
+SUMMARY_KEYS = ("total", "advance", "balance", "terms_received", "terms_pending", "receivables_title", "received",
+                "pending", "paid_in_full", "modes")
 
 
 def _summary(raw: dict | None) -> dict | None:
@@ -127,6 +128,8 @@ def _summary(raw: dict | None) -> dict | None:
     if missing:
         raise InvoiceConfigError(f"invoice config: missing {', '.join(missing)}")
     summary["modes"] = {str(k): str(v) for k, v in dict(summary["modes"]).items()}
+    summary["upi_lines"] = tuple(str(line) for line in summary.get("upi_lines") or ())
+    summary["upi_qr"] = _flag(summary.get("upi_qr", False), "payment_summary.upi_qr")
     return summary
 
 

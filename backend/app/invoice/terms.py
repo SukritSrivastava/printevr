@@ -37,17 +37,21 @@ def title(templates: dict, billing_type: str) -> str:
 
 
 def summary_terms(s: dict, m: Money, advance_pct: Decimal) -> list[list[Run]]:
-    """PAYMENT TERMS box of the payment summary: total, advance, and the balance if split."""
+    """PAYMENT TERMS box of the payment summary: total, advance, the balance if split, then
+    received so far and pending (total minus everything received; 0 received when unpaid)."""
     values = {
         "advance_pct": pct(advance_pct),
         "balance_pct": pct(Decimal(100) - Decimal(advance_pct)),
         "payable": fmt.amount(m.payable),
         "advance": fmt.amount(m.advance),
         "balance": fmt.amount(m.balance),
+        "received": fmt.amount(m.received),
+        "pending": fmt.amount(max(m.payable - m.received, Decimal(0))),
     }
     out = [runs(s["total"], **values), runs(s["advance"], **values)]
     if m.balance > 0:
         out.append(runs(s["balance"], **values))
+    out += [runs(s["terms_received"], **values), runs(s["terms_pending"], **values)]
     return out
 
 

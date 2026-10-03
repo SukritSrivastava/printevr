@@ -205,6 +205,13 @@ def _totals_and_footer(doc: InvoiceDocument, cfg: InvoiceConfig, m: Money) -> li
         ssize = max(L.SUB_VALUE_MIN_SIZE, round(ssize - 0.25, 2))
     ops.append(Text(sx, sy, payable, sfont, ssize, "right"))
 
+    if cfg.payment_summary:
+        if cfg.payment_summary["upi_qr"]:
+            ops.append(Image(str(L.UPI_QR_IMAGE), *L.UPI_QR))
+        ufont, usize = L.UPI_FONT
+        for i, text in enumerate(cfg.payment_summary["upi_lines"]):
+            ops.append(Text(L.UPI_X, L.UPI_Y0 + i * L.UPI_STEP, text, ufont, usize))
+
     if doc.saving_amount is not None and doc.saving_amount > 0:
         for template, y in zip(cfg.saving_lines, L.SAVING_LINES_Y):
             ops += _bold_runs(template, L.SAVING_X, y, L.SAVING_SIZE)

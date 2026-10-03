@@ -143,8 +143,13 @@ def _gst_doc(payments=()):
 def test_gst_invoice_has_no_payment_details(payments):
     data = render_document(_gst_doc(payments), cfg())
     joined = " ".join(page_text(data))
-    for gone in ("Payment Terms", "ICICI", "Account No", "IFSC", "Interest", "bill not paid", "COMPANY NAME"):
+    # Bank details print anyway (gst_invoice.print_bank_details, test_payment_summary.py).
+    for gone in ("Payment Terms", "Interest", "bill not paid"):
         assert gone not in joined, gone
+    no_bank = dataclasses.replace(cfg(), gst_invoice={**cfg().gst_invoice, "print_bank_details": False})
+    joined_no_bank = " ".join(page_text(render_document(_gst_doc(payments), no_bank)))
+    for gone in ("ICICI", "Account No", "IFSC", "COMPANY NAME"):
+        assert gone not in joined_no_bank, gone
     for kept in ("TERMS & CONDITIONS :", "1. Goods once sold will not be returned/ Exchanged.",
                  "2. Our responsibility ceases after the goods are removed", "3. All disputes subject to Chandigarh Jurisdiction.",
                  "Transport : Self", "Station:- Chandigarh", "For BASTTA", "Total :"):

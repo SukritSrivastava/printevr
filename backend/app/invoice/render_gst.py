@@ -4,7 +4,7 @@ Header, buyer and consignee, delivery/transport fields, the item table (serial n
 description with spec lines, HSN, quantity, units, rate, amount), then all five tax rows
 (non-applicable ones at 0% and 0.00), Total, bank details, terms and the signatory block.
 With print_payment_details off (config/invoice.yaml) the Payment Terms field, the bank details
-and the late-payment term are left off.
+and the late-payment term are left off; gst_invoice.print_bank_details brings the bank details back.
 Money is printed with Indian digit grouping and two decimals.
 """
 from decimal import Decimal
@@ -58,7 +58,7 @@ def compose_gst(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
             x0, x1, _, thick = G.TABLE_END_RULE
             ops.append(Bar(x0, x1, end - thick / 2, end + thick / 2))
         pages.append(ops)
-    pages[-1] += _totals(m, g) + _footer(g, cfg.print_payment_details)
+    pages[-1] += _totals(m, g) + _footer(g, cfg.print_payment_details, bool(g.get("print_bank_details")))
 
     if len(pages) > 1:
         x, base, font, size = L.PAGE_NUMBER
@@ -240,11 +240,12 @@ def _totals(m: Money, g: dict) -> list[Op]:
     return ops
 
 
-def _footer(g: dict, payment_details: bool = True) -> list[Op]:
-    """Bank details (payment details only), terms, and the signatory block."""
+def _footer(g: dict, payment_details: bool = True, bank_details: bool = False) -> list[Op]:
+    """Bank details (with the payment details, or on their own with print_bank_details), terms,
+    and the signatory block."""
     ops: list[Op] = []
     font, size = G.BANK_FONT
-    for i, text in enumerate(g["bank_lines"] if payment_details else []):
+    for i, text in enumerate(g["bank_lines"] if payment_details or bank_details else []):
         ops.append(Text(G.BANK_X, G.BANK_Y0 + i * G.BANK_STEP, text, font, size))
     x, base, hfont, hsize = G.TERMS_HEADING
     ops.append(Text(x, base, g["terms_heading"], hfont, hsize))

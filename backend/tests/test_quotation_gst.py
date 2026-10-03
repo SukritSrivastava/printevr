@@ -179,8 +179,10 @@ def test_gst_invoice_prints_all_three_tax_rows(client, auth):  # noqa: F811
                      "Consignee Info (Shipped to)", "Transport : Self", "Station:- Chandigarh",
                      "GSTIN :- 04ABCDE1234F1Z5", "HSN CODE"):
         assert expected in text, expected
-    # No payment details on a printed invoice (config print_payment_details: false).
-    for gone in ("Payment Terms", "ICICI", "Account No", "IFSC", "Interest will be charged"):
+    # No payment terms on a printed invoice (config print_payment_details: false); the bank details
+    # print anyway (gst_invoice.print_bank_details).
+    assert "ICICI BANK" in text and "Account No - 108405500579" in text
+    for gone in ("Payment Terms", "Interest will be charged"):
         assert gone not in text, gone
     for typo in ("orignal", "N0.", "Good once"):
         assert typo not in text
@@ -414,7 +416,7 @@ def test_split_is_chosen_per_invoice_and_kept_for_payments(client, auth):  # noq
     r = client.post("/api/invoices", json=invoice_body([k1_line(client)], advance_pct="70"), headers=auth)
     assert not any("amount pending" in t for t in pdf_lines(r.content))
     r = client.post("/api/invoices/19/payments", json={"amount": "1000", "date": "2026-10-01"}, headers=auth)
-    assert r.status_code == 200 and not any("Amount Pending" in t for t in pdf_lines(r.content))
+    assert r.status_code == 200 and not any("Amount Pending (out of" in t for t in pdf_lines(r.content))
     detail = client.get("/api/invoices/19", headers=auth).json()
     assert detail["advance_pct"] == "70" and detail["received"] == "1000.00" and detail["status"] == "part_paid"
     lines = pdf_lines(render(sogat_doc(payments=[], advance_pct="70"), full_cfg()))

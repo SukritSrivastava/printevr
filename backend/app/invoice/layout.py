@@ -167,6 +167,16 @@ SUB_VALUE = (547.58, 733.72, REGULAR, 14.95)  # right edge
 SUB_VALUE_MIN_X = 490.0
 SUB_VALUE_MIN_SIZE = 11.0
 
+# Payment summary's UPI details under the SUB TOTAL pill (docs/templates/non_gst_invoice_sample.pdf:
+# x, Montserrat-Bold 9.4, 12.9 pt apart; its QR is left off, so the text moves up under the pill).
+UPI_X = 385.1
+UPI_Y0 = 761.0
+UPI_STEP = 12.9
+UPI_FONT = (BOLD, 9.4)
+# The template's UPI QR (cut from its image), left of the UPI text and clear of the footer notes.
+UPI_QR_IMAGE = ASSETS / "payment" / "upi_qr.png"
+UPI_QR = (318.0, 758.0, 60.0, 60.0)  # x, top, width, height
+
 SAVING_X = 17.89
 SAVING_LINES_Y = (744.38, 753.16)
 SAVING_SIZE = 7.52

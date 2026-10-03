@@ -54,20 +54,33 @@ advance_pct: 80
 print_payment_details: false
 # The payment block printed under the items on every Non-GST invoice (owner's request,
 # 2026-10-03, from the "PAYMENT TERMS / RECIEVABLES" mock-up). Filled from the invoice, never
-# typed: the PAYMENT TERMS box (title from payment_terms.title) shows the total, the advance and,
-# for a split payment, the balance before dispatch; the RECIEVABLES box, once a payment is
-# recorded, lists each payment and what is still pending (total minus everything received).
+# typed: the PAYMENT TERMS box (title from payment_terms.title) shows the total, the advance,
+# for a split payment the balance before dispatch, then what has been received and what is
+# pending (2026-10-03, after Bill 104; unpaid bills say received 0); the RECIEVABLES box, once a
+# payment is recorded, lists each payment and what is still pending (total minus everything
+# received). upi_lines print under SUB TOTAL, as on docs/templates/non_gst_invoice_sample.pdf,
+# with the template's QR to their left when upi_qr is true.
 # Remove this block to go back to print_payment_details alone. Quotations never print it, and
 # GST invoices keep the BASTTA layout, whose payment details still follow print_payment_details.
 payment_summary:
   total: "**Total Amount:- Rs. {payable}/-**"
   advance: "**{advance_pct}% amount :-  {advance}/- (Advanced Payment)**"
   balance: "{balance_pct}% Amount:- Rs. {balance}/- (Before Dispatching the Order)"
+  terms_received: "Received Amount:- Rs. {received}/-"
+  terms_pending: "**Amount Pending:- Rs. {pending}/-**"
   receivables_title: "RECIEVABLES"
   received: "**{date}:- {amount}/- (VIA {mode})**"
   pending: "**PENDING AMOUNT (TO BE PAID) :- {pending}/- (BEFORE DELIVERY)**"
   paid_in_full: "**PENDING AMOUNT (TO BE PAID) :- 0/- (PAID IN FULL)**"
   modes: { upi: UPI, cash: CASH, bank_transfer: BANK TRANSFER, cheque: CHEQUE }
+  upi_lines:
+    - "Here are my UPI details"
+    - "Name - Ambika"
+    - "UPI Handle - 6239645912@ptyes"
+    - "Account number - 672710110005255"
+    - "IFSC Code :- BKID0006727."
+    - "Account holder name - Ambika."
+  upi_qr: true
 pad_single_digit_unit_price: true
 filename: "Invoice_{bill_no}_{business}_{status}.pdf"
 status_labels: { unpaid: Unpaid, part_paid: Part-paid, paid: Paid }
@@ -202,6 +215,9 @@ gst_invoice:
     tax: "{name} Tax ({rate}%) :"
     after_tax: "(After Tax) Sub-total :"
     total: "Total :"
+  # Bank details print on every GST invoice (owner, 2026-10-03), even with print_payment_details
+  # false; the Payment Terms field and the late-payment term still follow print_payment_details.
+  print_bank_details: true
   bank_lines:
     - "COMPANY NAME:- BASTTA"
     - "ICICI BANK"
