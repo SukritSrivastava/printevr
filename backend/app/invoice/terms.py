@@ -13,6 +13,7 @@ Run = tuple[str, bool]
 class PaymentEntry:
     amount: Decimal
     date: date
+    mode: str = "upi"
 
 
 def runs(template: str, **values) -> list[Run]:
@@ -33,6 +34,36 @@ def pct(value: Decimal) -> str:
 
 def title(templates: dict, billing_type: str) -> str:
     return templates["title"].format(billing_label=templates["billing_labels"][billing_type])
+
+
+def summary_terms(s: dict, m: Money, advance_pct: Decimal) -> list[list[Run]]:
+    """PAYMENT TERMS box of the payment summary: total, advance, and the balance if split."""
+    values = {
+        "advance_pct": pct(advance_pct),
+        "balance_pct": pct(Decimal(100) - Decimal(advance_pct)),
+        "payable": fmt.amount(m.payable),
+        "advance": fmt.amount(m.advance),
+        "balance": fmt.amount(m.balance),
+    }
+    out = [runs(s["total"], **values), runs(s["advance"], **values)]
+    if m.balance > 0:
+        out.append(runs(s["balance"], **values))
+    return out
+
+
+def summary_receivables(s: dict, m: Money, payments: list[PaymentEntry]) -> list[list[Run]]:
+    """RECIEVABLES box: one bulleted line per payment in date order, then the pending line
+    (total minus everything received). Empty when nothing has been received."""
+    if not payments:
+        return []
+    out = [
+        runs(s["received"], date=fmt.payment_date(p.date).upper(), amount=fmt.amount(p.amount),
+             mode=s["modes"].get(p.mode, p.mode.upper()))
+        for p in sorted(payments, key=lambda p: p.date)
+    ]
+    pending = m.payable - m.received
+    out.append(runs(s["paid_in_full"]) if pending <= 0 else runs(s["pending"], pending=fmt.amount(pending)))
+    return out
 
 
 def lines(templates: dict, m: Money, advance_pct: Decimal, payments: list[PaymentEntry]) -> list[list[Run]]:

@@ -4,8 +4,9 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate 
 import { ApiError, calculate, fetchCatalog, fetchSession, logout } from './api/client'
 import type { InvoiceSettings } from './api/invoiceTypes'
 import type { CalculateRequest, Catalog, TierSchedule } from './api/types'
-import { fetchInvoiceSettings } from './api/invoices'
+import { fetchInvoiceSettings, setStaffToken } from './api/invoices'
 import { useCart, CartProvider } from './cart/CartProvider'
+import { forgetCustomerDetails } from './cart/storage'
 import { AddonList } from './components/AddonList'
 import { AddToCartButton } from './components/AddToCartButton'
 import { CartPage } from './components/CartPage'
@@ -92,6 +93,9 @@ function Root() {
   } else {
     const onSignOut = sessionQuery.data.password_required
       ? () => {
+          // Signing out leaves no customer details or staff token in this browser; cart lines stay.
+          forgetCustomerDetails()
+          setStaffToken(null)
           logout().finally(signedOut)
         }
       : undefined
@@ -124,7 +128,7 @@ function CatalogGate({ onSignedOut }: { onSignedOut: () => void }) {
     return (
       <ServerError
         title={err instanceof ApiError && err.code === 'DATA_NOT_LOADED' ? 'The price sheet failed to load' : undefined}
-        message={err instanceof ApiError ? String(err.details.reason ?? err.message) : 'Check that the server is running, then retry.'}
+        message={err instanceof ApiError ? err.message : 'Check that the server is running, then retry.'}
         onRetry={() => catalogQuery.refetch()}
       />
     )

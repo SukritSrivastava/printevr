@@ -1,10 +1,12 @@
-"""No payment details on any printed invoice (config/invoice.yaml print_payment_details: false).
+"""print_payment_details: false (config/invoice.yaml).
 
-The owner's decision of 2026-10-03. The Non-GST invoice drops the payment-terms box and the
-footer's two payment notes; the GST invoice drops the Payment Terms field, the bank details and
-the late-payment term. Everything else stays where the golden tests (run with the details on,
-test_invoice_golden.py) put it. Payments are still recorded and stored; they just don't print.
+The owner's decision of 2026-10-03. The GST (BASTTA) invoice drops the Payment Terms field, the
+bank details and the late-payment term. The Non-GST invoice drops the footer's two payment notes
+and, with the payment summary removed (the shipped config prints it: test_payment_summary.py),
+the payment-terms box too. Everything else stays where the golden tests (run with the reference's
+box, test_invoice_golden.py) put it.
 """
+import dataclasses
 import json
 
 import pytest
@@ -13,7 +15,14 @@ from app.invoice import layout as L
 from app.invoice.paginate import Box
 from app.invoice.render import compose, render, render_document
 
-from .invoice_helpers import FIXTURES, cfg, chars, find_run, full_cfg, lines_by_baseline, open_pdf, sogat_doc, sogat_raw
+from .invoice_helpers import FIXTURES, chars, find_run, full_cfg, lines_by_baseline, open_pdf, sogat_doc, sogat_raw
+from .invoice_helpers import cfg as yaml_cfg
+
+
+def cfg():
+    """The shipped config without its payment summary: no payment details at all."""
+    return dataclasses.replace(yaml_cfg(), payment_summary=None)
+
 
 REFERENCE = json.loads((FIXTURES / "layout_reference.json").read_text(encoding="utf-8"))
 PAYMENT_WORDS = ("PAYMENT", "Payment", "payment", "Recieved", "Received", "Pending", "pending", "Advance", "ADVANCE",
@@ -30,9 +39,10 @@ def page_text(data: bytes) -> list[str]:
         return ["".join(c["text"] for c in line) for page in pdf.pages for line in lines_by_baseline(chars(page))]
 
 
-def test_the_default_config_prints_no_payment_details():
-    assert cfg().print_payment_details is False
-    assert full_cfg().print_payment_details is True
+def test_the_default_config_prints_the_summary_not_the_reference_box():
+    assert yaml_cfg().print_payment_details is False and yaml_cfg().payment_summary is not None
+    assert cfg().payment_summary is None
+    assert full_cfg().print_payment_details is True and full_cfg().payment_summary is None
 
 
 @pytest.mark.parametrize("payments", [[], PAYMENTS[:1], PAYMENTS], ids=["unpaid", "one payment", "two payments"])

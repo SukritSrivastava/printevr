@@ -10,6 +10,11 @@ services:
       STAFF_PASSCODE: ${STAFF_PASSCODE:-}
       SECRET_KEY: ${SECRET_KEY:-}
       DATABASE_URL: ${DATABASE_URL:-sqlite:////srv/var/invoices.db}
+      # Requests arrive through the web container's nginx, which appends the client's address
+      # to X-Forwarded-For; only believe that from Docker's private networks.
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-1}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}
+      RATE_LIMIT_BACKEND: ${RATE_LIMIT_BACKEND:-auto}
     volumes:
       # Edit the sheet or config on the host, then POST /api/admin/reload.
       - ./data:/srv/data:ro
@@ -17,7 +22,8 @@ services:
       # Invoices live here; keep it between container restarts.
       - ./var:/srv/var
     ports:
-      - "8000:8000"
+      # This machine only: a client reaching the API directly could forge X-Forwarded-For.
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 30s

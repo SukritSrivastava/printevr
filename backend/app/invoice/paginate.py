@@ -331,7 +331,7 @@ def layout_row(line, pad_unit_price: bool = True, cols: Columns = INVOICE_COLUMN
 
 @dataclass
 class BoxLayout:
-    """Payment terms box with its top at y = 0."""
+    """Payment terms box (or the payment summary's boxes) with its top at y = 0."""
 
     ops: list[Op]
     height: float
@@ -341,25 +341,36 @@ class BoxLayout:
         return shift(self.ops, top)
 
 
-def layout_box(title: str, lines: list[list[Run]]) -> BoxLayout:
-    x_title, title_offset, title_font, title_size = L.BOX_TITLE
+def layout_box(
+    title: str, lines: list[list[Run]], bullets: list[bool] | None = None, metrics: tuple | None = None
+) -> BoxLayout:
+    """A boxed list. Lines are bulleted unless `bullets` says otherwise; an unbulleted line
+    starts under the title (the RECIEVABLES box's pending line). `metrics` defaults to the
+    reference's payment-terms box (L.BOX_METRICS)."""
+    x_title, _, title_font, _ = L.BOX_TITLE
+    title_offset, title_size, first, step, base_size, min_size, wrap_step, dot_d, dot_rise, bottom_gap = (
+        metrics or L.BOX_METRICS
+    )
     ops: list[Op] = [Text(x_title, title_offset, title, title_font, title_size)]
-    max_w = L.TERMS_MAX_X - L.TERMS_X
-    y = L.TERMS_FIRST_OFFSET
+    y = first
     last = y
-    for runs in lines:
+    for n, runs in enumerate(lines):
+        bullet = bullets[n] if bullets is not None else True
+        x = L.TERMS_X if bullet else x_title
+        max_w = L.TERMS_MAX_X - x
         font_runs = [(text, L.BOLD if bold else L.REGULAR) for text, bold in runs]
         plain = "".join(t for t, _ in runs)
-        size = L.TERMS_SIZE
-        while size - L.TERMS_SHRINK_STEP >= L.TERMS_MIN_SIZE - 1e-9 and _runs_width(font_runs, size) > max_w + 1e-6:
+        size = base_size
+        while size - L.TERMS_SHRINK_STEP >= min_size - 1e-9 and _runs_width(font_runs, size) > max_w + 1e-6:
             size = round(size - L.TERMS_SHRINK_STEP, 4)
-        ops.append(Dot(L.TERMS_DOT_X, y - L.TERMS_DOT_RISE, L.TERMS_DOT_D))
-        wrapped = wrap_runs(font_runs, size, L.TERMS_X, L.TERMS_X, L.TERMS_MAX_X) if plain else [[]]
+        if bullet:
+            ops.append(Dot(L.TERMS_DOT_X, y - dot_rise, dot_d))
+        wrapped = wrap_runs(font_runs, size, x, x, L.TERMS_MAX_X) if plain else [[]]
         for i, pieces in enumerate(wrapped):
-            ops += [Text(x, y + i * L.TERMS_WRAP_STEP, t, f, size) for x, t, f in pieces]
-        last = y + (len(wrapped) - 1) * L.TERMS_WRAP_STEP
-        y = last + L.TERMS_STEP
-    bottom = last + L.BOX_BOTTOM_GAP
+            ops += [Text(x, y + i * wrap_step, t, f, size) for x, t, f in pieces]
+        last = y + (len(wrapped) - 1) * wrap_step
+        y = last + step
+    bottom = last + bottom_gap
     ops.insert(0, Box(L.BOX_X[0], L.BOX_X[1], 0.0, bottom))
     return BoxLayout(ops=ops, height=bottom, line_count=len(lines))
 

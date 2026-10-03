@@ -20,8 +20,9 @@ def cfg():
 
 
 def full_cfg():
-    """The config with payment details printed, as on reference_bill18.pdf and the templates."""
-    return dataclasses.replace(cfg(), print_payment_details=True)
+    """The config with the reference's payment-terms box printed, as on reference_bill18.pdf and
+    the templates (not the newer payment summary), so the golden layout stays locked."""
+    return dataclasses.replace(cfg(), print_payment_details=True, payment_summary=None)
 
 
 def sogat_raw() -> dict:

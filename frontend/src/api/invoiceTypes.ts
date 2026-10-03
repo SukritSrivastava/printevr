@@ -163,6 +163,8 @@ export interface InvoiceSettings {
   advance_pct: string | null
   /** false: printed invoices carry no payment details (config print_payment_details). */
   print_payment_details?: boolean
+  /** true: Non-GST invoices print the payment summary (config payment_summary). */
+  print_payment_summary?: boolean
 }
 
 export interface NextBillNo {

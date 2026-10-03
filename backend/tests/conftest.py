@@ -1,6 +1,17 @@
+import atexit
+import os
+import shutil
+import tempfile
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
+
+# Tests never touch the developer's var/invoices.db, nor a DATABASE_URL set in the shell: any
+# test that falls back to the default database gets this throwaway SQLite file instead.
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="printevr-tests-")
+os.environ["DATABASE_URL"] = f"sqlite:///{Path(_TEST_DB_DIR, 'invoices.db').as_posix()}"
+atexit.register(shutil.rmtree, _TEST_DB_DIR, ignore_errors=True)
 
 from app.loader import build_catalogue, load, read_config, read_workbook
 from app.quote import QuoteInput, calculate

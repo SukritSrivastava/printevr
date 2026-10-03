@@ -17,6 +17,16 @@ class Settings:
     # Behind a proxy (Vercel, nginx) every request comes from the proxy's address, so the
     # rate limit must key on the client IP the proxy forwards instead.
     trust_proxy_headers: bool = False
+    # How many proxies append to X-Forwarded-For in front of the app: the client is that many
+    # entries from the right (entries further left are whatever the client sent).
+    trusted_proxy_hops: int = 1
+    # Optional: only believe forwarded headers from these peers (IPs or CIDRs). Empty = any peer.
+    trusted_proxies: tuple[str, ...] = ()
+    # Login limits: "database" shares them through DATABASE_URL (all instances count together),
+    # "memory" keeps them per process, "auto" = database when DATABASE_URL is Postgres.
+    rate_limit_backend: str = "auto"
+    # The in-memory limiters forget the least recently seen clients beyond this many.
+    rate_limit_max_keys: int = 10_000
     # Shared site password. None = no password (local development and tests).
     site_password: str | None = None
     session_secret: str = ""
@@ -50,6 +60,13 @@ def _env_int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be a whole number, got {value!r}") from None
 
 
+def _rate_limit_backend() -> str:
+    value = _env("RATE_LIMIT_BACKEND", "auto").lower()
+    if value not in ("auto", "memory", "database"):
+        raise ValueError(f"RATE_LIMIT_BACKEND must be auto, memory or database, got {value!r}")
+    return value
+
+
 def get_settings() -> Settings:
     return Settings(
         data_file=Path(_env("DATA_FILE", str(ROOT / "data" / "Printevr_Pricing_Master_2025-26.xlsx"))),
@@ -58,6 +75,10 @@ def get_settings() -> Settings:
         cors_origins=[o.strip() for o in _env("CORS_ORIGIN", "http://localhost:5173").split(",") if o.strip()],
         rate_limit_per_minute=_env_int("RATE_LIMIT_PER_MINUTE", 60),
         trust_proxy_headers=_env("TRUST_PROXY_HEADERS", "1" if os.getenv("VERCEL") else "0") == "1",
+        trusted_proxy_hops=max(1, _env_int("TRUSTED_PROXY_HOPS", 1)),
+        trusted_proxies=tuple(p.strip() for p in _env("TRUSTED_PROXIES", "").split(",") if p.strip()),
+        rate_limit_backend=_rate_limit_backend(),
+        rate_limit_max_keys=max(100, _env_int("RATE_LIMIT_MAX_KEYS", 10_000)),
         site_password=_env("SITE_PASSWORD", "") or None,
         session_secret=_env("SESSION_SECRET", ""),
         session_days=_env_int("SESSION_DAYS", 7),

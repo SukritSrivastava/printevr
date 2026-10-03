@@ -238,7 +238,7 @@ def test_quotation_and_non_gst_totals_match_and_have_no_tax(client, auth):  # no
     for label in ("ITEM", "QUANTITY", "MARKET", "DISCOUNTED", "PRICE", "SUBTOTAL"):
         assert label in header, label
     assert "PAYMENT TERMS" not in quo_text and "Here are my UPI details" not in quo_text
-    assert "PAYMENT TERMS" not in inv_text  # invoices print no payment terms either (print_payment_details)
+    assert "PAYMENT TERMS" in inv_text and "(WITHOUT GST BILLING)" in inv_text  # the payment summary
     listed = client.get("/api/invoices/19", headers=auth).json()
     assert listed["total"] == listed["payable"] == "26250.00" and listed["gst"] is None
 
@@ -395,13 +395,15 @@ def test_long_gst_invoice_paginates_with_totals_on_the_last_page():
 # ---------------------------------------------------------------- pay in full, or a chosen split
 
 
-# The split is still stored per invoice. It is printed only with print_payment_details on
-# (config/invoice.yaml; off since 2026-10-03), so the printed terms are checked with full_cfg().
+# The split is stored per invoice and printed by the Non-GST payment summary (config/invoice.yaml);
+# the reference's own payment-terms wording is checked with full_cfg().
 
 
 def test_invoice_defaults_to_payment_in_full(client, auth):  # noqa: F811
     r = client.post("/api/invoices", json=invoice_body([k1_line(client)]), headers=auth)
-    assert not any("amount pending" in t or "PAYMENT TERMS" in t for t in pdf_lines(r.content))
+    printed = pdf_lines(r.content)
+    assert any(t.endswith("100% amount :-  26250/- (Advanced Payment)") for t in printed), printed
+    assert not any("Before Dispatching" in t for t in printed)  # no balance line without a split
     assert client.get("/api/invoices/19", headers=auth).json()["advance_pct"] == "100"
     lines = pdf_lines(render(sogat_doc(payments=[], advance_pct="100"), full_cfg()))
     assert any(t.startswith("100% amount pending") and t.endswith("148000/-") for t in lines)

@@ -40,6 +40,9 @@ class InvoiceConfig:
     # False: printed invoices carry no payment terms, payment notes, bank details or
     # payment-related terms (config/invoice.yaml print_payment_details).
     print_payment_details: bool = True
+    # The PAYMENT TERMS + RECIEVABLES block on every invoice (config/invoice.yaml
+    # payment_summary); None = not printed (print_payment_details decides alone).
+    payment_summary: dict | None = None
 
     @property
     def balance_pct(self) -> Decimal:
@@ -113,6 +116,20 @@ def _email(raw: dict | None) -> dict | None:
     return email
 
 
+SUMMARY_KEYS = ("total", "advance", "balance", "receivables_title", "received", "pending", "paid_in_full", "modes")
+
+
+def _summary(raw: dict | None) -> dict | None:
+    if not raw:
+        return None
+    summary = dict(raw)
+    missing = [f"payment_summary.{k}" for k in SUMMARY_KEYS if k not in summary]
+    if missing:
+        raise InvoiceConfigError(f"invoice config: missing {', '.join(missing)}")
+    summary["modes"] = {str(k): str(v) for k, v in dict(summary["modes"]).items()}
+    return summary
+
+
 def _flag(value, name: str) -> bool:
     if not isinstance(value, bool):
         raise InvoiceConfigError(f"invoice config: {name} must be true or false")
@@ -147,6 +164,7 @@ def parse(raw: dict) -> InvoiceConfig:
             gst_invoice=_section(raw.get("gst_invoice"), "gst_invoice", REQUIRED_GST_INVOICE),
             quotation=_section(raw.get("quotation"), "quotation", REQUIRED_QUOTATION),
             print_payment_details=_flag(raw.get("print_payment_details", True), "print_payment_details"),
+            payment_summary=_summary(raw.get("payment_summary")),
         )
     except KeyError as exc:
         raise InvoiceConfigError(f"invoice config: missing {exc.args[0]!r}") from None

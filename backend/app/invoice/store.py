@@ -4,17 +4,27 @@ Three number series, one table each, so each keeps its own unique bill numbers:
 `invoices` (Non-GST invoices, plus every invoice saved before the series existed),
 `gst_invoices` and `quotations`. `document_counters` remembers the highest number each series
 has ever issued, so a deleted number is never handed out again.
+
+The tables come from the versioned migrations in backend/migrations/ (0003_invoice_tables),
+never from create_all(): on SQLite the Store applies pending migrations itself when it opens;
+on Postgres they are applied before deploying (scripts/migrate.py) and the Store only checks
+that the tables it needs are there. The classes below must match the migrations
+(tests/test_invoice_migrations.py compares them).
 """
+import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import JSON, Date, DateTime, Integer, Numeric, String, create_engine, delete, func, inspect, or_, select, text
+from sqlalchemy import JSON, Date, DateTime, Integer, Numeric, String, create_engine, delete, func, inspect, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
+from .. import migrations
 from ..designers import schema as designer_schema
 from ..settings import ROOT
+
+log = logging.getLogger("printevr.invoice")
 
 AMOUNT = Numeric(12, 2, asdecimal=True)
 SERIES = ("non_gst", "gst", "quotation")
@@ -119,43 +129,79 @@ def normalize_url(url: str) -> str:
     return url
 
 
+INVOICE_MIGRATION = "0003_invoice_tables.py"
+
+
+class SchemaNotReady(Exception):
+    """The database lacks invoice tables or columns: the migrations haven't been applied."""
+
+    def __init__(self, missing: list[str]):
+        self.missing = missing
+        super().__init__(f"invoice schema not ready, missing: {', '.join(missing)}")
+
+
+def missing_schema(engine: Engine) -> list[str]:
+    """Tables and `table.column`s the models need that the database doesn't have."""
+    insp = inspect(engine)
+    have_tables = set(insp.get_table_names())
+    missing: list[str] = []
+    for table in Base.metadata.sorted_tables:
+        if table.name not in have_tables:
+            missing.append(table.name)
+            continue
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        missing += [f"{table.name}.{c.name}" for c in table.columns if c.name not in have]
+    return missing
+
+
+CONNECT_TIMEOUT_S = 10
+
+
+def engine_options(url: str) -> dict:
+    """create_engine() keyword arguments for a normalized URL."""
+    if url.startswith("sqlite"):
+        return {"pool_pre_ping": True, "connect_args": {"check_same_thread": False, "timeout": 15}}
+    # No server-side prepared statements: they don't survive a transaction-mode pooler
+    # (Neon's -pooler host, PgBouncer), which DATABASE_URL should point at.
+    connect_args: dict = {"prepare_threshold": None}
+    if "connect_timeout=" not in url:
+        # libpq's default is to wait minutes: an unreachable database would hold every
+        # request until the function times out. A URL's own connect_timeout wins.
+        connect_args["connect_timeout"] = CONNECT_TIMEOUT_S
+    return {"pool_pre_ping": True, "connect_args": connect_args}
+
+
 class Store:
     def __init__(self, url: str):
         url = normalize_url(url)
-        kwargs: dict = {"pool_pre_ping": True}
-        if url.startswith("sqlite"):
-            kwargs["connect_args"] = {"check_same_thread": False, "timeout": 15}
-        else:
-            # No server-side prepared statements: they don't survive a transaction-mode
-            # pooler (Neon's -pooler host, PgBouncer), which DATABASE_URL should point at.
-            kwargs["connect_args"] = {"prepare_threshold": None}
-        self.engine: Engine = create_engine(url, **kwargs)
+        self.engine: Engine = create_engine(url, **engine_options(url))
         self.is_sqlite = url.startswith("sqlite")
-        Base.metadata.create_all(self.engine)
-        self._add_missing_columns()
+        try:
+            self._prepare_schema()
+        except BaseException:
+            self.engine.dispose()
+            raise
         self.session = sessionmaker(self.engine, expire_on_commit=False)
         self._designers_ready = False
+
+    def _prepare_schema(self) -> None:
+        """SQLite: apply pending migrations (safe with several processes starting at once).
+        Postgres: change nothing; refuse to start storage if the invoice tables aren't ready."""
+        if self.is_sqlite:
+            migrations.migrate(self.engine, out=lambda line: log.debug("migrations: %s", line))
+        missing = missing_schema(self.engine)
+        if missing:
+            raise SchemaNotReady(missing)
+        if not self.is_sqlite and INVOICE_MIGRATION not in migrations.applied(self.engine):
+            log.warning(
+                "invoice tables are usable but %s isn't recorded: run backend/scripts/migrate.py", INVOICE_MIGRATION
+            )
 
     def designers_available(self) -> bool:
         """Whether the Designer Assignment tables exist (on Postgres: the migrations have run)."""
         if not self._designers_ready:
             self._designers_ready = designer_schema.prepare(self.engine)
         return self._designers_ready
-
-    def _add_missing_columns(self) -> None:
-        """create_all() doesn't alter existing tables: add columns introduced since (all nullable)."""
-        added = {
-            InvoiceRow.__tablename__: {"gst": "JSON", "salesperson": "VARCHAR(100)", "advance_pct": "NUMERIC(5,2)"},
-            GstInvoiceRow.__tablename__: {"advance_pct": "NUMERIC(5,2)"},
-            QuotationRow.__tablename__: {"advance_pct": "NUMERIC(5,2)"},
-            InvoiceEvent.__tablename__: {"series": "VARCHAR(16)"},
-        }
-        for table, columns in added.items():
-            have = {c["name"] for c in inspect(self.engine).get_columns(table)}
-            for name, sql_type in columns.items():
-                if name not in have:
-                    with self.engine.begin() as conn:
-                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
 
     @staticmethod
     def row_class(series: str) -> type:

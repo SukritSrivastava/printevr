@@ -5,6 +5,10 @@ COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/app backend/app
 COPY backend/assets backend/assets
+# Versioned schema migrations: SQLite applies them on start; for Postgres run
+# `docker compose run --rm api python scripts/migrate.py` before starting the API.
+COPY backend/migrations backend/migrations
+COPY backend/scripts backend/scripts
 COPY config config
 COPY data data
 WORKDIR /srv/backend

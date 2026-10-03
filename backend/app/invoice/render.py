@@ -1,5 +1,8 @@
 """Invoice PDF in Printevr's format (BRD-cart-invoice section 7): InvoiceDocument -> bytes.
 
+Non-GST invoices print here, with the payment summary under the items (config payment_summary).
+GST invoices keep the BASTTA layout (render_gst.py) and quotations their own (render_quote.py).
+
 compose() lays every page out as ops (paginate.py); draw() turns them into ReportLab calls
 on a canvas created with invariant=1, so the same document always gives the same bytes.
 """
@@ -18,7 +21,7 @@ from .config import InvoiceConfig
 from .gst import LEGACY_COMPONENTS, GstComponent
 from .models import InvoiceDocument
 from .money import Money, compute, line_subtotal
-from .paginate import Bar, Box, Dot, Image, Op, Pill, Text, layout_box, layout_row, paginate, wrap_runs
+from .paginate import Bar, BoxLayout, Box, Dot, Image, Op, Pill, Text, layout_box, layout_row, paginate, shift, wrap_runs
 
 
 @dataclass
@@ -49,6 +52,32 @@ def document_money(doc: InvoiceDocument, cfg: InvoiceConfig) -> Money:
     return compute(subtotals, doc_components(doc), doc_advance_pct(doc, cfg), [p.amount for p in doc.payments])
 
 
+def _payment_box(doc: InvoiceDocument, cfg: InvoiceConfig, m: Money) -> BoxLayout | None:
+    """What goes between the last item and the totals: the payment summary (PAYMENT TERMS,
+    then RECIEVABLES once something is received), else the reference's payment-terms box
+    when print_payment_details is on, else nothing."""
+    entries = [terms.PaymentEntry(p.amount, p.date, p.mode) for p in doc.payments]
+    title = terms.title(cfg.payment_terms, "with_gst" if m.taxes else "without_gst")
+    if cfg.payment_summary:
+        s = cfg.payment_summary
+        box = layout_box(title, terms.summary_terms(s, m, doc_advance_pct(doc, cfg)), metrics=L.SUMMARY_METRICS)
+        received = terms.summary_receivables(s, m, entries)
+        if not received:
+            return box
+        second = layout_box(
+            s["receivables_title"], received, [True] * (len(received) - 1) + [False], metrics=L.SUMMARY_METRICS
+        )
+        top = box.height + L.SUMMARY_GAP
+        return BoxLayout(ops=box.ops + shift(second.ops, top), height=top + second.height,
+                         line_count=box.line_count + second.line_count)
+    if cfg.print_payment_details:
+        return layout_box(
+            terms.title(cfg.payment_terms, doc.billing_type),
+            terms.lines(cfg.payment_terms, m, doc_advance_pct(doc, cfg), entries),
+        )
+    return None
+
+
 def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
     L.register_fonts()
     m = document_money(doc, cfg)
@@ -57,13 +86,7 @@ def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
     for row, following in zip(rows, doc.lines[1:]):
         if following.source == "addon":
             row.ops = [op for op in row.ops if not isinstance(op, Bar)]
-    box = None
-    if cfg.print_payment_details:
-        entries = [terms.PaymentEntry(p.amount, p.date) for p in doc.payments]
-        box = layout_box(
-            terms.title(cfg.payment_terms, doc.billing_type),
-            terms.lines(cfg.payment_terms, m, doc_advance_pct(doc, cfg), entries),
-        )
+    box = _payment_box(doc, cfg, m)
     # Without the payment box the totals still need the room below the last row.
     plans = paginate([r.height for r in rows], box.height if box else 0.0, len(m.taxes))
 

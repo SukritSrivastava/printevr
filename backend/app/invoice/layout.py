@@ -148,6 +148,13 @@ TERMS_DOT_X = 40.2
 TERMS_DOT_D = 3.8
 TERMS_DOT_RISE = 4.15
 BOX_BOTTOM_GAP = 13.4  # box bottom = last line baseline + this
+SUMMARY_GAP = 8.0  # payment summary: RECIEVABLES box top = PAYMENT TERMS box bottom + this
+# The payment summary's boxes are tighter than the reference's payment-terms box (as on the
+# owner's mock-up), so they usually fit under the items on page 1. Same x positions.
+# (title baseline offset, title size, first line offset, line step, size, min size, wrap step,
+#  dot diameter, dot rise, bottom gap)
+BOX_METRICS = (24.75, 15.01, TERMS_FIRST_OFFSET, TERMS_STEP, TERMS_SIZE, TERMS_MIN_SIZE, TERMS_WRAP_STEP, TERMS_DOT_D, TERMS_DOT_RISE, BOX_BOTTOM_GAP)
+SUMMARY_METRICS = (20.0, 13.5, 37.0, 18.0, 10.5, 9.0, 13.5, 3.3, 3.6, 10.5)
 
 # ---- 7.6 totals, saving and footer (last page)
 TOTAL_LABEL = (434.48, 703.89, BOLD, 12.70, "TOTAL:")

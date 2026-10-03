@@ -9,6 +9,9 @@ from typing import Callable
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import SQLAlchemyError
+
+from ..invoice.store import SchemaNotReady
 
 from . import service
 from .service import DesignerError
@@ -34,22 +37,26 @@ class JobUpdate(_Body):
     vendor_name: str | None = Field(default=None, max_length=500)
 
 
-def create_router(get_store: Callable, error: Callable[..., JSONResponse]) -> APIRouter:
+def create_router(
+    get_store: Callable, error: Callable[..., JSONResponse], storage_error: Callable[[Exception], JSONResponse]
+) -> APIRouter:
     router = APIRouter(prefix="/api")
 
     def run(action: Callable):
-        store = get_store()
-        if store is None:
-            return error("STORAGE_DISABLED", "Jobs aren't saved on this server (no DATABASE_URL)", 503)
-        if not store.designers_available():
-            return error(
-                "DESIGNERS_NOT_SET_UP", "The designer tables aren't in the database yet: run the migrations", 503
-            )
         try:
+            store = get_store()
+            if store is None:
+                return error("STORAGE_DISABLED", "Jobs aren't saved on this server", 503)
+            if not store.designers_available():
+                return error(
+                    "DESIGNERS_NOT_SET_UP", "The designer tables aren't in the database yet: run the migrations", 503
+                )
             with store.session() as s:
                 return action(s)
         except DesignerError as exc:
             return error(exc.code, exc.message, exc.http_status, exc.details)
+        except (SchemaNotReady, SQLAlchemyError) as exc:
+            return storage_error(exc)
 
     @router.get("/designers")
     def get_designers():

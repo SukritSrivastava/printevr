@@ -283,7 +283,8 @@ def test_settings_endpoint(app, unsaved_app):
         "enabled": True, "storage": True, "staff_passcode": True, "advance_pct": "80", "seller_state_code": "04"}
     assert slab_keys(got["gst_slab_groups"]) == SLAB_KEYS
     assert got["gst_field_defaults"] == {"payment_terms": "Advance", "transport": "Self", "station": "Chandigarh"}
-    assert got["print_payment_details"] is False  # the cart hides the inputs that only fed printed payment details
+    assert got["print_payment_details"] is False  # GST invoices hide their Payment Terms input
+    assert got["print_payment_summary"] is True  # Non-GST invoices print the advance: the cart offers the split
     assert len(got["hsn_codes"]) == 27 and set(got["hsn_codes"].values()) == {""}  # blank until filled in
     assert "gst_options" not in got
     assert TestClient(unsaved_app).get("/api/invoice-settings").json()["storage"] is False

@@ -70,6 +70,7 @@ function settingsFrom(s: InvoiceSettings | undefined): CheckoutSettings {
     hsnCodes: s?.hsn_codes ?? {},
     stateCode: s?.seller_state_code ?? '',
     printPaymentDetails: s?.print_payment_details ?? true,
+    printPaymentSummary: s?.print_payment_summary ?? false,
   }
 }
 
