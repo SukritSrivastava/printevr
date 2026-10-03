@@ -1,3 +1,4 @@
+import { plural } from './format'
 import type { CatalogItem, CatalogProduct, CustomDimsKind, OptionKey } from '../api/types'
 
 export const CUSTOM_SIZE = '__custom__'
@@ -89,10 +90,17 @@ export function dimensionError(raw: string, unit: 'in' | 'cm'): string | null {
   return null
 }
 
-export function quantityError(raw: string, kind: CustomDimsKind, unit: string): string | null {
+/** Inline quantity check. A product whose minimum is a hard one (`block`) refuses less, as the server does. */
+export function quantityError(
+  raw: string,
+  kind: CustomDimsKind,
+  unit: string,
+  minimum?: { min_qty: number; below_min_policy?: 'bill_at_min' | 'block' },
+): string | null {
   if (raw.trim() === '') return 'Enter a quantity'
   const n = Number(raw)
   if (!Number.isFinite(n) || n <= 0) return 'Quantity must be at least 1'
   if (kind !== 'area_sqft' && !Number.isInteger(n)) return `Whole ${unit}s only`
+  if (minimum?.below_min_policy === 'block' && n < minimum.min_qty) return `Minimum order is ${minimum.min_qty} ${plural(minimum.min_qty, unit)}`
   return null
 }

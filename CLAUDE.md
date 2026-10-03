@@ -23,6 +23,10 @@ Internal quoting tool. The spec is `docs/BRD-v2.1.pdf` (BRD v2.1); read the rele
 
 ## Known deviations from the BRD text
 - **L1 item count is 233, not 284.** The sheet stores mailer-bag sizes as `6 × 8 in`, `6 × 8 in in`, `6 × 8 in in in`…, which would make every tier its own item. The loader collapses repeated unit words, which is also what makes L4's count of 11 come out right.
+- **Catalogue changes of 2026-10-03** (`config/products.yaml`, `tests/test_catalogue_changes.py`):
+  - `active: false` withdraws a product (Customised Paper Printing): left out of `/api/catalog`, `/api/calculate` answers 422 `PRODUCT_WITHDRAWN`, so a new invoice line for it fails with `LINE_NOT_PRICEABLE`. Issued invoices still reprint from their stored lines. A withdrawn product may be deleted from the sheet without the loader refusing it.
+  - `min_qty` raises a product's minimum above the sheet's first tier: that tier starts at `min_qty` at the same price (the mailer bags' "200 pcs" tier, 200-499, becomes "300 pcs", 300-499). With `below_min_policy: block` smaller orders get 422 `BELOW_MIN`; `/api/catalog` sends `below_min_policy` so the calculator refuses them inline too.
+  - `test_calculate_snapshot.py` skips the four changed products (`CHANGED_PRODUCTS`); everything else must still answer as recorded.
 - Item ids keep decimal points (`rigid_boxes/3.5x5.5x4-in/top-bottom`) rather than turning them into hyphens.
 - The API starts even if the sheet fails to load: `/api/health` shows the reason and pricing routes return `DATA_NOT_LOADED` (503) until a fixed sheet is reloaded.
 - Cart/invoice BRD deviations:

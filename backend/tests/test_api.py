@@ -43,7 +43,7 @@ def test_health(client):
 
 def test_catalog_has_no_prices(client):
     body = client.get("/api/catalog").json()
-    assert len(body["categories"]) == 14
+    assert len(body["categories"]) == 13  # Paper printing's category went with it (withdrawn)
     rigid = next(p for c in body["categories"] for p in c["products"] if p["id"] == "rigid_boxes")
     assert len({i["size"] for i in rigid["items"]}) == 20
     assert {i["option_1"] for i in rigid["items"]} == {"Top-Bottom", "Magnetic / Slider"}

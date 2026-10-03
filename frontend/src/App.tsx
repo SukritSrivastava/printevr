@@ -330,7 +330,7 @@ export function QuoteDesk({
     return Math.round(w * h * n * 100) / 100
   })()
   const quantity = isOutdoor ? outdoorSqft : Number(qty)
-  const qtyError = isOutdoor ? null : quantityError(qty, product.custom_dims, product.sale_unit)
+  const qtyError = isOutdoor ? null : quantityError(qty, product.custom_dims, product.sale_unit, product)
 
   // Everything the quote depends on except the quantity (which the tier slider changes every frame).
   const selectionRequest: Omit<CalculateRequest, 'quantity'> | null = (() => {
@@ -489,6 +489,7 @@ export function QuoteDesk({
             onChange={setQty}
             unit={product.sale_unit}
             minQty={product.min_qty}
+            hardMin={product.below_min_policy === 'block'}
             error={qtyError}
             hint={
               product.yield_factor > 1 && product.micro_unit && Number(qty) > 0

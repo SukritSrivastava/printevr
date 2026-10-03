@@ -198,6 +198,11 @@ def _product_config(entry: dict, defaults: dict, library: dict) -> dict:
     if not multiplier.is_finite() or multiplier < 1:
         raise LoaderError(f"config: {merged['id']}: slider_max_multiplier must be a number of at least 1")
     merged["_slider_max_multiplier"] = multiplier
+    if not isinstance(merged.get("active", True), bool):
+        raise LoaderError(f"config: {merged['id']}: active must be true or false")
+    min_qty = merged.get("min_qty")
+    if min_qty is not None and (isinstance(min_qty, bool) or not isinstance(min_qty, int) or min_qty < 1):
+        raise LoaderError(f"config: {merged['id']}: min_qty must be a whole number of at least 1")
     addons = []
     for addon_id in merged.get("addons") or []:
         spec = library.get(addon_id)
@@ -236,7 +241,8 @@ def build_catalogue(rows: list[SheetRow], flag_status: dict[str, str], config: d
 
     sheet_products = list(dict.fromkeys(r.product for r in rows))
     missing_in_config = [p for p in sheet_products if p not in configs]
-    missing_in_sheet = [p for p in configs if p not in sheet_products]
+    # A withdrawn product (active: false) may also be deleted from the sheet later.
+    missing_in_sheet = [p for p, c in configs.items() if p not in sheet_products and c.get("active", True)]
     if missing_in_config:
         raise LoaderError(f"Products in the sheet but not in config: {missing_in_config}")
     if missing_in_sheet:
@@ -274,6 +280,7 @@ def build_catalogue(rows: list[SheetRow], flag_status: dict[str, str], config: d
             invoice_title=cfg.get("invoice_title"),
             invoice_unit_label=cfg.get("invoice_unit_label"),
             hsn_code=str(cfg.get("hsn_code") or "").strip(),
+            active=cfg.get("active", True),
         )
     by_name = {p.name: p for p in products.values()}
 
@@ -337,6 +344,12 @@ def build_catalogue(rows: list[SheetRow], flag_status: dict[str, str], config: d
         orphan = next(iter(samples))
         raise LoaderError(f"Sample cost row for {orphan} has no priced tiers")
 
+    for product in products.values():
+        min_qty = configs[product.name].get("min_qty")
+        if min_qty is not None:
+            for item in product.items:
+                _raise_minimum(item, min_qty)
+
     # Anchor-group members must share tier breakpoints.
     groups: dict[str, list[Item]] = {}
     for product in products.values():
@@ -359,6 +372,20 @@ def build_catalogue(rows: list[SheetRow], flag_status: dict[str, str], config: d
         loaded_at=datetime.now(timezone.utc),
         source_file=source,
     )
+
+
+def _raise_minimum(item: Item, min_qty: int) -> None:
+    """config min_qty above the sheet's first tier: that tier starts at min_qty instead, at the
+    same price ("200 pcs" covering 200-499 becomes "300 pcs" covering 300-499)."""
+    first = item.tiers[0]
+    if min_qty <= first.qty_from:
+        return
+    if len(item.tiers) > 1 and min_qty >= item.tiers[1].qty_from:
+        raise LoaderError(
+            f"config: {item.product_id}: min_qty {min_qty} would swallow the {item.tiers[1].qty_from} tier of {item.id}"
+        )
+    label = re.sub(rf"^{first.qty_from}\b", str(min_qty), first.label)
+    item.tiers[0] = Tier(qty_from=min_qty, label=label, price=first.price, flags=first.flags, row=first.row)
 
 
 def load(data_file: Path, config_file: Path) -> Catalogue:

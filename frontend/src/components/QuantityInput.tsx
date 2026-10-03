@@ -5,6 +5,8 @@ interface Props {
   onChange: (value: string) => void
   unit: string
   minQty: number
+  /** The minimum is enforced: − never goes below it. */
+  hardMin?: boolean
   error: string | null
   hint?: React.ReactNode
 }
@@ -15,10 +17,11 @@ function stepFor(minQty: number) {
   return 1
 }
 
-export function QuantityInput({ value, onChange, unit, minQty, error, hint }: Props) {
+export function QuantityInput({ value, onChange, unit, minQty, hardMin, error, hint }: Props) {
   const step = stepFor(minQty)
   const current = Number(value) || 0
-  const bump = (delta: number) => onChange(String(Math.max(1, Math.round(current + delta))))
+  const floor = hardMin ? minQty : 1
+  const bump = (delta: number) => onChange(String(Math.max(floor, Math.round(current + delta))))
 
   return (
     <div className="flex flex-col gap-1.5">

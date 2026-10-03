@@ -5,8 +5,11 @@ from app.pricing.totals import money
 
 
 def test_every_tier_row_quotes_the_sheet_price(catalogue, quote):
-    checked = 0
+    checked = withdrawn = 0
     for item in catalogue.items.values():
+        if not catalogue.products[item.product_id].active:
+            withdrawn += len(item.tiers)  # not quoted any more (test_catalogue_changes.py)
+            continue
         for tier in item.tiers:
             result = quote(item_id=item.id, quantity=tier.qty_from)
             assert result["status"] == "success", (item.id, tier.qty_from, result)
@@ -14,7 +17,8 @@ def test_every_tier_row_quotes_the_sheet_price(catalogue, quote):
             assert pricing["unit_price"] == format(money(tier.price), "f"), (item.id, tier.qty_from)
             assert pricing["tier_applied"]["qty_from"] == tier.qty_from
             checked += 1
-    assert checked == 950
+    assert withdrawn == 30  # Customised Paper Printing
+    assert checked == 950 - withdrawn
 
 
 def test_catalogue_prices_match_raw_sheet_rows(catalogue, sheet):

@@ -40,6 +40,8 @@ export interface CatalogProduct {
   micro_unit: string | null
   micro_approx: boolean
   min_qty: number
+  /** block = quantities under min_qty are refused; bill_at_min = billed at min_qty */
+  below_min_policy?: 'bill_at_min' | 'block'
   max_qty: number | null
   production_time: string
   breakpoints: Breakpoint[]

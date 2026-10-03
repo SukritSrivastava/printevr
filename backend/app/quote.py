@@ -156,6 +156,11 @@ def calculate(cat: Catalogue, req: QuoteInput) -> dict:
             item = None
             custom_info = {"dims": dims, "unit": unit, "pool": pool, "options": options}
 
+    if not product.active:
+        raise QuoteError(
+            "PRODUCT_WITHDRAWN", f"{product.display_name} is no longer offered", 422, {"product_id": product.id}
+        )
+
     # ---- quantity
     quantity = req.quantity
     if quantity is None or not quantity.is_finite() or quantity <= 0:

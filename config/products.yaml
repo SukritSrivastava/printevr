@@ -3,6 +3,10 @@
 # `product` must match the Master "Product" column exactly.
 # `hsn_code` pre-fills the HSN CODE column on GST invoices (staff can edit it per line). Every
 # product starts blank on purpose: enter the real code from your GST records, never a guess.
+# `active: false` withdraws a product: it is no longer offered, quoted or printable on a new
+# invoice, but invoices already issued with it still reprint. Its sheet rows may stay or go.
+# `min_qty` raises the minimum order above the sheet's first tier; that tier then starts at
+# min_qty at the same price. Pair it with `below_min_policy: block` to refuse smaller orders.
 
 defaults:
   gst_rate: 0.18
@@ -221,6 +225,7 @@ products:
   # ---------- Paper printing ----------
   - product: Customised Paper Printing
     id: paper_printing
+    active: false               # withdrawn 2026-10-03; old invoices still reprint
     hsn_code: ""
     invoice_title: Customised paper printing
     sale_unit: sheet
@@ -292,6 +297,8 @@ products:
   # ---------- Mailer bags ----------
   - product: Customised & Coloured Courier Bags
     id: courier_bags
+    min_qty: 300                # sheet's first tier is 200; raised 2026-10-03
+    below_min_policy: block     # the API refuses fewer than 300
     hsn_code: ""
     invoice_title: Customised courier bag printing
     sale_unit: bag
@@ -301,6 +308,8 @@ products:
     notes: [Double colour print on discussion]
   - product: Customised & Coloured Frosted Bags
     id: frosted_bags
+    min_qty: 300                # sheet's first tier is 200; raised 2026-10-03
+    below_min_policy: block     # the API refuses fewer than 300
     hsn_code: ""
     invoice_title: Customised frosted bag printing
     sale_unit: bag
@@ -310,6 +319,8 @@ products:
     notes: [Double colour print on discussion]
   - product: Customised & Coloured Kraft Mailer Bags
     id: kraft_mailer_bags
+    min_qty: 300                # sheet's first tier is 200; raised 2026-10-03
+    below_min_policy: block     # the API refuses fewer than 300
     hsn_code: ""
     invoice_title: Customised kraft mailer bag printing
     sale_unit: bag

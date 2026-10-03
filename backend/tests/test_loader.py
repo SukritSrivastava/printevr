@@ -29,7 +29,8 @@ def test_mailer_sizes_are_normalised(catalogue):
     assert [i.size for i in courier.items] == [
         "6 × 8 in", "8 × 10 in", "10 × 14 in", "12 × 16 in", "14 × 18 in", "16 × 22 in"
     ]
-    assert all(i.breakpoints == [200, 500, 1000, 2500, 5000] for i in courier.items)
+    # The sheet starts at 200; config min_qty starts the first tier at 300 instead.
+    assert all(i.breakpoints == [300, 500, 1000, 2500, 5000] for i in courier.items)
 
 
 def test_l2_blank_price_stops_startup_and_names_the_row(sheet, rebuild):

@@ -77,6 +77,9 @@ class Product:
     invoice_unit_label: str | None = None
     # GST invoices: pre-fills each line's HSN code (editable in the cart). Blank = none set.
     hsn_code: str = ""
+    # False = withdrawn: kept so the sheet still matches the config, but not offered or priced.
+    # Issued invoices that name it still reprint (they're rendered from their stored lines).
+    active: bool = True
 
     @property
     def supports_custom(self) -> bool:
@@ -98,6 +101,10 @@ class Catalogue:
 
     def product(self, product_id: str) -> Product | None:
         return self.products.get(product_id)
+
+    @property
+    def active_products(self) -> list[Product]:
+        return [p for p in self.products.values() if p.active]
 
     def item(self, item_id: str) -> Item | None:
         return self.items.get(item_id)
