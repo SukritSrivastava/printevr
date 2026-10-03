@@ -57,12 +57,15 @@ def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
     for row, following in zip(rows, doc.lines[1:]):
         if following.source == "addon":
             row.ops = [op for op in row.ops if not isinstance(op, Bar)]
-    entries = [terms.PaymentEntry(p.amount, p.date) for p in doc.payments]
-    box = layout_box(
-        terms.title(cfg.payment_terms, doc.billing_type),
-        terms.lines(cfg.payment_terms, m, doc_advance_pct(doc, cfg), entries),
-    )
-    plans = paginate([r.height for r in rows], box.height, len(m.taxes))
+    box = None
+    if cfg.print_payment_details:
+        entries = [terms.PaymentEntry(p.amount, p.date) for p in doc.payments]
+        box = layout_box(
+            terms.title(cfg.payment_terms, doc.billing_type),
+            terms.lines(cfg.payment_terms, m, doc_advance_pct(doc, cfg), entries),
+        )
+    # Without the payment box the totals still need the room below the last row.
+    plans = paginate([r.height for r in rows], box.height if box else 0.0, len(m.taxes))
 
     pages: list[list[Op]] = []
     for plan in plans:
@@ -77,7 +80,8 @@ def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
         for index, top in plan.rows:
             ops += rows[index].at(top)
         if plan.box_top is not None:
-            ops += box.at(plan.box_top)
+            if box is not None:
+                ops += box.at(plan.box_top)
             ops += _totals_and_footer(doc, cfg, m)
         pages.append(ops)
 
@@ -194,9 +198,11 @@ def _totals_and_footer(doc: InvoiceDocument, cfg: InvoiceConfig, m: Money) -> li
     email_x0 = cx + L.width(f["contact_prefix"], cfont, csize)
     email_x1 = email_x0 + L.width(f["email"], cfont, csize)
     ops.append(Bar(email_x0, email_x1, *L.EMAIL_RULE_Y))
-    ops.append(_text(L.ADVANCE_NOTE, f["advance_note"]))
+    if cfg.print_payment_details:
+        ops.append(_text(L.ADVANCE_NOTE, f["advance_note"]))
     ops.append(_text(L.COLOUR_NOTE, f["colour_note"]))
-    ops.append(_text(L.LATE_NOTE, f["late_note"], tracking="late_note"))
+    if cfg.print_payment_details:
+        ops.append(_text(L.LATE_NOTE, f["late_note"], tracking="late_note"))
     ops.append(_text(L.TERMS_NOTE, f["terms_note"], tracking="terms_note"))
     if m.taxes:
         gst_note = f["gst_note_with_gst"].format(gst_pct=terms.pct(sum((t.rate for t in m.taxes), Decimal(0))))

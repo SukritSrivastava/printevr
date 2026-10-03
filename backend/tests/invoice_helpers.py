@@ -1,4 +1,5 @@
 """Shared helpers for the invoice tests: fixtures and PDF measurement."""
+import dataclasses
 import io
 import json
 import re
@@ -16,6 +17,11 @@ OUTPUT = Path(__file__).parent / "output"
 
 def cfg():
     return invoice_config.load(get_settings().invoice_config_file)
+
+
+def full_cfg():
+    """The config with payment details printed, as on reference_bill18.pdf and the templates."""
+    return dataclasses.replace(cfg(), print_payment_details=True)
 
 
 def sogat_raw() -> dict:

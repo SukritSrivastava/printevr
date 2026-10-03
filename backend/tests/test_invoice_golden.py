@@ -11,7 +11,12 @@ from app.invoice import layout as L
 from app.invoice.paginate import layout_row
 from app.invoice.render import compose, render
 
-from .invoice_helpers import FIXTURES, OUTPUT, cfg, chars, find_run, lines_by_baseline, open_pdf, rects, sogat_doc, sogat_raw
+from .invoice_helpers import FIXTURES, OUTPUT, chars, find_run, full_cfg, lines_by_baseline, open_pdf, rects, sogat_doc, sogat_raw
+
+# The reference prints payment details (payment-terms box, payment notes); these tests lock that
+# layout with print_payment_details on. What the default config prints without them is in
+# test_invoice_no_payment.py.
+cfg = full_cfg
 
 REFERENCE = json.loads((FIXTURES / "layout_reference.json").read_text(encoding="utf-8"))
 FIXED_TOP = 280.0

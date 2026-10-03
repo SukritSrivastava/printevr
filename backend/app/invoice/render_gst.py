@@ -3,6 +3,8 @@
 Header, buyer and consignee, delivery/transport fields, the item table (serial no.,
 description with spec lines, HSN, quantity, units, rate, amount), then all five tax rows
 (non-applicable ones at 0% and 0.00), Total, bank details, terms and the signatory block.
+With print_payment_details off (config/invoice.yaml) the Payment Terms field, the bank details
+and the late-payment term are left off.
 Money is printed with Indian digit grouping and two decimals.
 """
 from decimal import Decimal
@@ -43,7 +45,7 @@ def compose_gst(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
         ops: list[Op] = []
         dy = 0.0
         if n == 0:
-            ops += _header(doc, g)
+            ops += _header(doc, g, cfg)
         else:
             x, base, font, size = G.CONT_NUMBER
             ops.append(Text(x, base, f"{g['number_label']} {doc.bill_no} (continued)", font, size))
@@ -56,7 +58,7 @@ def compose_gst(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
             x0, x1, _, thick = G.TABLE_END_RULE
             ops.append(Bar(x0, x1, end - thick / 2, end + thick / 2))
         pages.append(ops)
-    pages[-1] += _totals(m, g) + _footer(g)
+    pages[-1] += _totals(m, g) + _footer(g, cfg.print_payment_details)
 
     if len(pages) > 1:
         x, base, font, size = L.PAGE_NUMBER
@@ -82,7 +84,7 @@ def _fit(text: str, font: str, size: float, max_w: float, min_size: float) -> fl
     return size
 
 
-def _header(doc: InvoiceDocument, g: dict) -> list[Op]:
+def _header(doc: InvoiceDocument, g: dict, cfg: InvoiceConfig) -> list[Op]:
     ops: list[Op] = []
     cx, base, font, size = G.COPY_LABEL
     ops.append(Text(cx, base, g["copy_label"], font, size, "center"))
@@ -119,6 +121,8 @@ def _header(doc: InvoiceDocument, g: dict) -> list[Op]:
     else:
         values = {k: "" for k in G.FIELDS}
     for key, (x, base, size, max_x) in G.FIELDS.items():
+        if key == "payment_terms" and not cfg.print_payment_details:
+            continue  # no payment details on a printed invoice
         text = (g["field_labels"][key] + values[key]).rstrip()
         ops.append(Text(x, base, text, G.BOLD, _fit(text, G.BOLD, size, max_x - x, G.FIELD_MIN_SIZE)))
     return ops
@@ -236,15 +240,17 @@ def _totals(m: Money, g: dict) -> list[Op]:
     return ops
 
 
-def _footer(g: dict) -> list[Op]:
+def _footer(g: dict, payment_details: bool = True) -> list[Op]:
+    """Bank details (payment details only), terms, and the signatory block."""
     ops: list[Op] = []
     font, size = G.BANK_FONT
-    for i, text in enumerate(g["bank_lines"]):
+    for i, text in enumerate(g["bank_lines"] if payment_details else []):
         ops.append(Text(G.BANK_X, G.BANK_Y0 + i * G.BANK_STEP, text, font, size))
     x, base, hfont, hsize = G.TERMS_HEADING
     ops.append(Text(x, base, g["terms_heading"], hfont, hsize))
     ops.append(Bar(x, x + L.width(g["terms_heading"], hfont, hsize), *G.TERMS_RULE_Y))
-    for i, text in enumerate(g["terms_lines"]):
+    terms_lines = g["terms_lines"] if payment_details else g.get("terms_lines_without_payment", g["terms_lines"])
+    for i, text in enumerate(terms_lines):
         tsize = _fit(text, G.REGULAR, G.TERMS_SIZE, G.TERMS_MAX_X - G.TERMS_X, 5.0)
         ops.append(Text(G.TERMS_X, G.TERMS_Y0 + i * G.TERMS_STEP, text, G.REGULAR, tsize))
     cx, base, cfont, csize = G.CERTIFIED

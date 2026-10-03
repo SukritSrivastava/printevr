@@ -11,6 +11,8 @@ export interface CheckoutSettings extends MoneySettings {
   gstDefaults: GstFieldDefaults
   hsnCodes: Record<string, string>
   stateCode: string
+  /** false: invoices print no payment details, so the inputs that only fed them are hidden. */
+  printPaymentDetails?: boolean
 }
 
 type TextKey = { [K in keyof Checkout]: Checkout[K] extends string | null ? K : never }[keyof Checkout]
@@ -90,6 +92,7 @@ export function CheckoutForm({
   const warnings = gstWarnings(checkout, slab, lines, settings.hsnCodes, settings.stateCode)
   const f = (key: keyof Checkout) => ({ error: errors[key], showError: showErrors || !!checkout[key] })
   const patch = (p: Partial<Checkout>) => dispatch({ type: 'checkout', patch: p })
+  const paymentDetails = settings.printPaymentDetails !== false
 
   return (
     <section aria-labelledby="checkout-title" className="flex flex-col gap-4 rounded-md bg-stock p-4 shadow-sm ring-1 ring-rule">
@@ -187,7 +190,9 @@ export function CheckoutForm({
           <h2 className="type-expanded mt-2 text-lg font-bold">Delivery and transport</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field id="delivery_terms" label="Delivery Terms" max={60} optional {...f('delivery_terms')} />
-            <Field id="payment_terms" label="Payment Terms" max={40} optional fallback={settings.gstDefaults.payment_terms} {...f('payment_terms')} />
+            {paymentDetails && (
+              <Field id="payment_terms" label="Payment Terms" max={40} optional fallback={settings.gstDefaults.payment_terms} {...f('payment_terms')} />
+            )}
             <Field id="po_date" label="P.O Date" type="date" optional {...f('po_date')} />
             <Field id="gr_rr_no" label="GR/RR No" max={30} optional {...f('gr_rr_no')} />
             <Field id="transport" label="Transport" max={40} optional fallback={settings.gstDefaults.transport} {...f('transport')} />
@@ -259,25 +264,27 @@ export function CheckoutForm({
         <p className="text-xs text-ink-soft">Blank or 0 hides the saving block (quotations and Non-GST invoices).</p>
       </div>
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1.5 text-sm font-semibold text-ink-soft">Payment</legend>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            className="accent-cyan"
-            checked={checkout.split_payment}
-            onChange={(e) => patch({ split_payment: e.target.checked })}
-          />
-          Split payment (part before printing, the rest before dispatch)
-        </label>
-        {checkout.split_payment ? (
-          <div className="sm:max-w-xs">
-            <Field id="advance_pct" label="Before printing (%)" inputMode="decimal" max={6} fallback={settings.advancePct} {...f('advance_pct')} />
-          </div>
-        ) : (
-          <p className="text-xs text-ink-soft">Off: the invoice asks for the full amount before printing.</p>
-        )}
-      </fieldset>
+      {paymentDetails && (
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1.5 text-sm font-semibold text-ink-soft">Payment</legend>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              className="accent-cyan"
+              checked={checkout.split_payment}
+              onChange={(e) => patch({ split_payment: e.target.checked })}
+            />
+            Split payment (part before printing, the rest before dispatch)
+          </label>
+          {checkout.split_payment ? (
+            <div className="sm:max-w-xs">
+              <Field id="advance_pct" label="Before printing (%)" inputMode="decimal" max={6} fallback={settings.advancePct} {...f('advance_pct')} />
+            </div>
+          ) : (
+            <p className="text-xs text-ink-soft">Off: the invoice asks for the full amount before printing.</p>
+          )}
+        </fieldset>
+      )}
 
       <dl className="flex flex-col gap-1.5 rounded-md bg-sheet p-3" aria-label="Invoice summary">
         <div className="flex justify-between">
@@ -296,7 +303,7 @@ export function CheckoutForm({
           <dt>{gst ? 'Total (after tax)' : 'Payable'}</dt>
           <dd data-testid="payable">{money(fromPaise(m.payable))}</dd>
         </div>
-        {checkout.split_payment && !errors.advance_pct ? (
+        {!paymentDetails ? null : checkout.split_payment && !errors.advance_pct ? (
           <>
             <div className="flex justify-between text-sm text-ink-soft">
               <dt>{advancePct}% before printing</dt>

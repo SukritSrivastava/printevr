@@ -11,7 +11,7 @@ from app.invoice.money import compute
 from app.invoice.render import render, render_document
 from app.invoice.store import GstInvoiceRow, InvoiceRow, QuotationRow
 
-from .invoice_helpers import cfg, chars, lines_by_baseline, open_pdf, sogat_doc, sogat_raw
+from .invoice_helpers import cfg, chars, full_cfg, lines_by_baseline, open_pdf, sogat_doc, sogat_raw
 from .test_invoice_api import app, auth, client, invoice_body, k1_line, token, unsaved, unsaved_app  # noqa: F401
 
 D = Decimal
@@ -176,9 +176,12 @@ def test_gst_invoice_prints_all_three_tax_rows(client, auth):  # noqa: F811
         assert expected in text, expected
     for expected in ("ORIGINAL COPY", "INVOICE NO. 1", "Goods once sold", "For BASTTA",
                      "Certified that the particulars given above are true & correct", "Buyer Info (Billed to)",
-                     "Consignee Info (Shipped to)", "Payment Terms: Advance", "Transport : Self", "Station:- Chandigarh",
+                     "Consignee Info (Shipped to)", "Transport : Self", "Station:- Chandigarh",
                      "GSTIN :- 04ABCDE1234F1Z5", "HSN CODE"):
         assert expected in text, expected
+    # No payment details on a printed invoice (config print_payment_details: false).
+    for gone in ("Payment Terms", "ICICI", "Account No", "IFSC", "Interest will be charged"):
+        assert gone not in text, gone
     for typo in ("orignal", "N0.", "Good once"):
         assert typo not in text
 
@@ -235,7 +238,7 @@ def test_quotation_and_non_gst_totals_match_and_have_no_tax(client, auth):  # no
     for label in ("ITEM", "QUANTITY", "MARKET", "DISCOUNTED", "PRICE", "SUBTOTAL"):
         assert label in header, label
     assert "PAYMENT TERMS" not in quo_text and "Here are my UPI details" not in quo_text
-    assert "PAYMENT TERMS     (WITHOUT GST BILLING)" in pdf_lines(inv.content)
+    assert "PAYMENT TERMS" not in inv_text  # invoices print no payment terms either (print_payment_details)
     listed = client.get("/api/invoices/19", headers=auth).json()
     assert listed["total"] == listed["payable"] == "26250.00" and listed["gst"] is None
 
@@ -392,27 +395,35 @@ def test_long_gst_invoice_paginates_with_totals_on_the_last_page():
 # ---------------------------------------------------------------- pay in full, or a chosen split
 
 
+# The split is still stored per invoice. It is printed only with print_payment_details on
+# (config/invoice.yaml; off since 2026-10-03), so the printed terms are checked with full_cfg().
+
+
 def test_invoice_defaults_to_payment_in_full(client, auth):  # noqa: F811
     r = client.post("/api/invoices", json=invoice_body([k1_line(client)]), headers=auth)
-    lines = pdf_lines(r.content)
-    assert any(t.startswith("100% amount pending") and t.endswith("26250/-") for t in lines)
-    assert not any("20% Amount" in t or "80%" in t for t in lines)  # no split unless chosen
+    assert not any("amount pending" in t or "PAYMENT TERMS" in t for t in pdf_lines(r.content))
     assert client.get("/api/invoices/19", headers=auth).json()["advance_pct"] == "100"
+    lines = pdf_lines(render(sogat_doc(payments=[], advance_pct="100"), full_cfg()))
+    assert any(t.startswith("100% amount pending") and t.endswith("148000/-") for t in lines)
+    assert not any("20% Amount" in t or "80%" in t for t in lines)  # no split unless chosen
 
 
 def test_split_is_chosen_per_invoice_and_kept_for_payments(client, auth):  # noqa: F811
     r = client.post("/api/invoices", json=invoice_body([k1_line(client)], advance_pct="70"), headers=auth)
-    lines = pdf_lines(r.content)
-    assert any(t.startswith("70% amount pending") and t.endswith("18375/-") for t in lines)
-    assert any(t.startswith("30% Amount:- Rs. 7875/-") for t in lines)
+    assert not any("amount pending" in t for t in pdf_lines(r.content))
     r = client.post("/api/invoices/19/payments", json={"amount": "1000", "date": "2026-10-01"}, headers=auth)
-    assert any(t.startswith("Amount Pending (out of 70%)") for t in pdf_lines(r.content))
-    assert client.get("/api/invoices/19", headers=auth).json()["advance_pct"] == "70"
+    assert r.status_code == 200 and not any("Amount Pending" in t for t in pdf_lines(r.content))
+    detail = client.get("/api/invoices/19", headers=auth).json()
+    assert detail["advance_pct"] == "70" and detail["received"] == "1000.00" and detail["status"] == "part_paid"
+    lines = pdf_lines(render(sogat_doc(payments=[], advance_pct="70"), full_cfg()))
+    assert any(t.startswith("70% amount pending") and t.endswith("103600/-") for t in lines)
+    assert any(t.startswith("30% Amount:- Rs. 44400/-") for t in lines)
 
 
 def test_old_invoices_without_a_choice_keep_their_80_20_split(app, client, auth):  # noqa: F811
     raw = legacy_row(app, None)
-    lines = pdf_lines(client.get(f"/api/invoices/{raw['bill_no']}/pdf", headers=auth).content)
+    assert client.get(f"/api/invoices/{raw['bill_no']}/pdf", headers=auth).status_code == 200
+    lines = pdf_lines(render(sogat_doc(payments=[], advance_pct=None), full_cfg()))
     assert any(t.startswith("80% amount pending") for t in lines)
     assert any(t.startswith("20% Amount:-") for t in lines)
 
@@ -440,7 +451,7 @@ def test_quotation_has_no_payment_details(client, auth):  # noqa: F811
         assert gone not in text, gone
     for kept in ("THANK YOU FOR YOUR BUSINESS.", "Colours can vary", "Terms & Condition applied", "TOTAL: 26250", "SAVING"):
         assert kept in text, kept
-    # Invoices keep theirs.
+    # Invoices drop their payment notes too (print_payment_details: false) but keep the GST note.
     inv = pdf_text(client.post("/api/invoices", json=invoice_body([k1_line(client)]), headers=auth).content)
-    assert "100% OF THE PAYMENT WILL BE TAKEN IN ADVANCE FOR PRINTING ORDERS" in inv and "Late payment" in inv
+    assert "100% OF THE PAYMENT WILL BE TAKEN IN ADVANCE FOR PRINTING ORDERS" not in inv and "Late payment" not in inv
     assert "gst as applicable will be extra on total" in inv

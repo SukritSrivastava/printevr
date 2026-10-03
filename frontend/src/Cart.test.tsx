@@ -93,7 +93,8 @@ const SLAB_GROUPS: GstSlabGroup[] = [
 ]
 const slabOf = (key: string) => SLAB_GROUPS.flatMap((g) => g.slabs).find((s) => s.key === key)!.components
 
-const settingsResponse = (storage: boolean, staffPasscode = true) =>
+// print_payment_details: false is config/invoice.yaml's (no payment details on printed invoices).
+const settingsResponse = (storage: boolean, staffPasscode = true, printPaymentDetails = false) =>
   new Response(
     JSON.stringify({
       enabled: true,
@@ -104,6 +105,7 @@ const settingsResponse = (storage: boolean, staffPasscode = true) =>
       gst_field_defaults: { payment_terms: 'Advance', transport: 'Self', station: 'Chandigarh' },
       hsn_codes: { rigid_boxes: '' },
       advance_pct: '80',
+      print_payment_details: printPaymentDetails,
     }),
   )
 
@@ -111,7 +113,13 @@ const NAMES: Record<string, string> = { quotation: 'Quotation', non_gst: 'Invoic
 const seriesOf = (b: InvoiceCreate) => (b.document_type === 'quotation' ? 'quotation' : (b.bill_type ?? 'non_gst'))
 
 function mockApi(
-  opts: { quote?: (b: CalculateRequest) => QuoteResponse; invoice?: InvoiceAnswer; storage?: boolean; staffPasscode?: boolean } = {},
+  opts: {
+    quote?: (b: CalculateRequest) => QuoteResponse
+    invoice?: InvoiceAnswer
+    storage?: boolean
+    staffPasscode?: boolean
+    printPaymentDetails?: boolean
+  } = {},
 ): Api {
   const api: Api = { calls: [], invoices: [], logins: 0 }
   vi.stubGlobal(
@@ -119,7 +127,7 @@ function mockApi(
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/api/session')) return new Response(JSON.stringify({ authenticated: true, password_required: false }))
       if (url.endsWith('/api/catalog')) return new Response(JSON.stringify(catalog))
-      if (url.endsWith('/api/invoice-settings')) return settingsResponse(opts.storage ?? true, opts.staffPasscode ?? true)
+      if (url.endsWith('/api/invoice-settings')) return settingsResponse(opts.storage ?? true, opts.staffPasscode ?? true, opts.printPaymentDetails ?? false)
       if (url.endsWith('/api/calculate')) {
         const body = JSON.parse(String(init?.body)) as CalculateRequest
         api.calls.push(body)
@@ -358,7 +366,7 @@ describe('cart', () => {
   it('GST invoice: grouped slab dropdown, GST fields, all three tax rows and the request', async () => {
     savedCart([catalogueLine()], { ...SHIP_TO, billing_type: '' })
     sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
-    const api = mockApi()
+    const api = mockApi({ printPaymentDetails: true })
     const user = setup()
     renderApp()
     await openCart(user)
@@ -454,10 +462,10 @@ describe('cart', () => {
     expect(screen.getByLabelText('Bill No')).toHaveValue('7') // typed by hand: kept
   })
 
-  it('pays in full by default; a split is chosen per invoice and starts at the configured 80%', async () => {
+  it('with payment details printed: pays in full by default; a split is chosen per invoice and starts at the configured 80%', async () => {
     savedCart([catalogueLine()], SHIP_TO)
     sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
-    const api = mockApi()
+    const api = mockApi({ printPaymentDetails: true })
     const user = setup()
     renderApp()
     await openCart(user)
@@ -490,6 +498,27 @@ describe('cart', () => {
     await user.click(screen.getByRole('button', { name: 'Quotation' }))
     await waitFor(() => expect(api.invoices).toHaveLength(3))
     expect(api.invoices[2].advance_pct).toBeNull()
+  })
+
+  it('no payment details on printed invoices: no split payment, no GST Payment Terms, no payment lines in the summary', async () => {
+    savedCart([catalogueLine()], SHIP_TO)
+    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
+    const api = mockApi()
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    const summary = screen.getByLabelText('Invoice summary')
+    expect(screen.queryByLabelText(/^Split payment/)).not.toBeInTheDocument()
+    expect(within(summary).queryByText(/before printing|before dispatch/)).not.toBeInTheDocument()
+    expect(within(summary).getByTestId('payable')).toHaveTextContent('₹26,250.00')
+    await user.click(screen.getByLabelText('GST invoice'))
+    await screen.findByLabelText('GST slab')
+    expect(screen.queryByLabelText(/^Payment Terms/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^Transport/)).toHaveValue('Self')
+    await user.click(screen.getByLabelText('Non-GST invoice'))
+    await user.click(screen.getByRole('button', { name: 'Print (Unpaid as of now)' }))
+    await waitFor(() => expect(api.invoices).toHaveLength(1))
+    expect(api.invoices[0].advance_pct).toBeNull()
   })
 
   it('U4: Print (Unpaid) asks for the passcode, posts no payments and downloads the named file', async () => {

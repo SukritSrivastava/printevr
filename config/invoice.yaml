@@ -45,6 +45,13 @@ legacy_gst_options:
     label: "9% CGST + 9% SGST/UTGST"
     components: [{ name: CGST, rate: 9 }, { name: SGST/UTGST, rate: 9 }]
 advance_pct: 80
+# What printed invoices (Non-GST and GST) say about payment. false (owner's decision, 2026-10-03):
+# none of it. The Non-GST invoice prints no payment-terms box (total, advance, received, pending,
+# balance) and no footer payment notes (advance_note, late_note); the GST invoice prints no
+# "Payment Terms" field, no bank details and `terms_lines_without_payment` instead of
+# `terms_lines`. Payments are still recorded in the app (Invoices page) and emailed to staff;
+# they only stay off the PDF. true prints all of it again, exactly as before.
+print_payment_details: false
 pad_single_digit_unit_price: true
 filename: "Invoice_{bill_no}_{business}_{status}.pdf"
 status_labels: { unpaid: Unpaid, part_paid: Part-paid, paid: Paid }
@@ -198,5 +205,11 @@ gst_invoice:
     - "3. Our responsibility ceases after the goods are removed"
     - "from our premises."
     - "4. All disputes subject to Chandigarh Jurisdiction."
+  # Printed instead of terms_lines while print_payment_details is false: no late-payment interest.
+  terms_lines_without_payment:
+    - "1. Goods once sold will not be returned/ Exchanged."
+    - "2. Our responsibility ceases after the goods are removed"
+    - "from our premises."
+    - "3. All disputes subject to Chandigarh Jurisdiction."
   certified: "Certified that the particulars given above are true & correct"
   signatory: "For BASTTA"

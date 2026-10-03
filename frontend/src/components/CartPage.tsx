@@ -69,6 +69,7 @@ function settingsFrom(s: InvoiceSettings | undefined): CheckoutSettings {
     gstDefaults: s?.gst_field_defaults ?? {},
     hsnCodes: s?.hsn_codes ?? {},
     stateCode: s?.seller_state_code ?? '',
+    printPaymentDetails: s?.print_payment_details ?? true,
   }
 }
 

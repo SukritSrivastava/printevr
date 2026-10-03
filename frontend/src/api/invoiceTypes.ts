@@ -161,6 +161,8 @@ export interface InvoiceSettings {
   /** product id -> HSN code (blank until set in config/products.yaml) */
   hsn_codes: Record<string, string>
   advance_pct: string | null
+  /** false: printed invoices carry no payment details (config print_payment_details). */
+  print_payment_details?: boolean
 }
 
 export interface NextBillNo {

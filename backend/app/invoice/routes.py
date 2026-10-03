@@ -152,6 +152,9 @@ def create_router(
             **slab_settings(),
             "hsn_codes": hsn_codes(),
             "advance_pct": str(invoice_cfg.advance_pct) if invoice_cfg else None,
+            # false: printed invoices carry no payment details, so the cart hides the inputs
+            # that only fed them (GST "Payment Terms", the split payment).
+            "print_payment_details": invoice_cfg.print_payment_details if invoice_cfg else True,
         }
 
     @router.get("/invoices/next-bill-no")

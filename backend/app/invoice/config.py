@@ -37,6 +37,9 @@ class InvoiceConfig:
     gst_invoice: dict | None = None
     # Quotations: the Printevr template's title, number label and table labels.
     quotation: dict | None = None
+    # False: printed invoices carry no payment terms, payment notes, bank details or
+    # payment-related terms (config/invoice.yaml print_payment_details).
+    print_payment_details: bool = True
 
     @property
     def balance_pct(self) -> Decimal:
@@ -110,6 +113,12 @@ def _email(raw: dict | None) -> dict | None:
     return email
 
 
+def _flag(value, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise InvoiceConfigError(f"invoice config: {name} must be true or false")
+    return value
+
+
 def parse(raw: dict) -> InvoiceConfig:
     try:
         terms = dict(raw["payment_terms"])
@@ -137,6 +146,7 @@ def parse(raw: dict) -> InvoiceConfig:
             seller_state_code=str(raw.get("seller_state_code") or ""),
             gst_invoice=_section(raw.get("gst_invoice"), "gst_invoice", REQUIRED_GST_INVOICE),
             quotation=_section(raw.get("quotation"), "quotation", REQUIRED_QUOTATION),
+            print_payment_details=_flag(raw.get("print_payment_details", True), "print_payment_details"),
         )
     except KeyError as exc:
         raise InvoiceConfigError(f"invoice config: missing {exc.args[0]!r}") from None
