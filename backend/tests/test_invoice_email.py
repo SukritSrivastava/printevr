@@ -59,7 +59,7 @@ def test_new_invoice_and_payment_are_emailed(tmp_path):
     assert msg["To"] == msg["From"] == "printevrdesk@gmail.com"
     assert msg["Subject"] == "Invoice #19 – Sogat Jutti Store"
     [pdf] = list(msg.iter_attachments())
-    assert pdf.get_filename() == "Invoice_19_Sogat-Jutti-Store_Unpaid.pdf" and pdf.get_content() == r.content
+    assert pdf.get_filename() == "Invoice_19_Sogat-Jutti-Store.pdf" and pdf.get_content() == r.content
     assert FakeSMTP.logins == [("printevrdesk@gmail.com", "abcdefghijklmnop")]
 
     r = client.post("/api/invoices/19/payments", json={"amount": "10000", "date": "2026-10-01", "mode": "upi"}, headers=auth)
@@ -138,7 +138,7 @@ def test_gst_invoices_are_emailed_and_quotations_are_not(tmp_path):
     plain = bodies(msg)[0]
     assert plain.startswith("New GST invoice 1 for Jairpur Jewellers.")
     assert "Payable (incl. GST): Rs. 30975" in plain  # 26250 + 2362.50 + 2362.50
-    assert next(msg.iter_attachments()).get_filename() == "GST_Invoice_1_Jairpur-Jewellers_Unpaid.pdf"
+    assert next(msg.iter_attachments()).get_filename() == "GST_Invoice_1_Jairpur-Jewellers.pdf"
 
 
 def test_a_mail_failure_never_stops_the_invoice(tmp_path):

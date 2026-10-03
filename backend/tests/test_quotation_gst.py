@@ -297,7 +297,7 @@ def test_gst_payments_and_quotation_has_none(client, auth):  # noqa: F811
     post(client, auth, gst_body([k1_line(client)], "intra_18"))
     r = client.post("/api/invoices/1/payments?series=gst", json={"amount": "30975", "date": "2026-10-01"}, headers=auth)
     assert r.status_code == 200 and r.headers["x-invoice-status"] == "paid"
-    assert "GST_Invoice_1_Jairpur-Jewellers_Paid.pdf" in r.headers["content-disposition"]
+    assert "GST_Invoice_1_Jairpur-Jewellers.pdf" in r.headers["content-disposition"]
     post(client, auth, quotation_body([k1_line(client)]))
     r = client.post("/api/invoices/1/payments?series=quotation", json={"amount": "1", "date": "2026-10-01"}, headers=auth)
     assert r.status_code == 422
