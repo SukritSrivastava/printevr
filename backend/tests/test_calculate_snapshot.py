@@ -105,23 +105,10 @@ def snapshot():
     return json.loads(SNAPSHOT.read_text(encoding="utf-8"))
 
 
-# Changed on purpose on 2026-10-03 (tests/test_catalogue_changes.py covers them instead):
-# Customised Paper Printing was withdrawn, and the three mailer bags' minimum went from 200 to
-# 300 with smaller orders refused. Every other product must still answer exactly as recorded.
-CHANGED_PRODUCTS = ("paper_printing", "courier_bags", "frosted_bags", "kraft_mailer_bags")
-
-
-def _changed_on_purpose(request: dict) -> bool:
-    product = request.get("product_id") or (request.get("item_id") or "").split("/")[0]
-    return product in CHANGED_PRODUCTS
-
-
 def test_every_recorded_request_answers_the_same(snapshot):
     client = _client()
     changed = []
     for entry in snapshot["entries"]:
-        if _changed_on_purpose(entry["request"]):
-            continue
         r = client.post("/api/calculate", json=entry["request"])
         if digest(r) != entry["sha256"]:
             changed.append(entry["request"])

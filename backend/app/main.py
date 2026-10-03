@@ -292,8 +292,7 @@ def build_catalog(cat: Catalogue) -> dict:
     categories = []
     for category in cat.categories:
         products = []
-        # Withdrawn products (active: false) aren't offered for new quotes or carts.
-        for p in (p for p in cat.active_products if p.category == category):
+        for p in (p for p in cat.products.values() if p.category == category):
             items = [
                 {
                     "id": i.id,
@@ -325,7 +324,6 @@ def build_catalog(cat: Catalogue) -> dict:
                     "micro_unit": p.micro_unit,
                     "micro_approx": p.micro_approx,
                     "min_qty": first.breakpoints[0],
-                    "below_min_policy": p.below_min_policy,
                     "max_qty": p.max_qty,
                     "production_time": first.production_time,
                     "breakpoints": [{"qty_from": t.qty_from, "label": t.label} for t in first.tiers],
@@ -344,8 +342,7 @@ def build_catalog(cat: Catalogue) -> dict:
                     "items": items,
                 }
             )
-        if products:
-            categories.append({"name": category, "products": products})
+        categories.append({"name": category, "products": products})
     return {
         "loaded_at": cat.loaded_at.isoformat(),
         "show_invoice_billing": cat.show_invoice_billing,

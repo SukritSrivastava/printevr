@@ -93,15 +93,6 @@ export function CheckoutForm({
   const f = (key: keyof Checkout) => ({ error: errors[key], showError: showErrors || !!checkout[key] })
   const patch = (p: Partial<Checkout>) => dispatch({ type: 'checkout', patch: p })
   const paymentDetails = settings.printPaymentDetails !== false
-  const onCustomInvoice = (on: boolean) => {
-    patch({ custom_invoice: on })
-    if (!on) return
-    // The client never sees a calculated price on a custom invoice: drop it from the middle column.
-    for (const l of lines) {
-      if (l.middle.kind === 'reference_price' && l.middle.amount === l.catalogue_unit_price)
-        dispatch({ type: 'update', id: l.id, patch: { middle: { kind: 'none' } } })
-    }
-  }
 
   return (
     <section aria-labelledby="checkout-title" className="flex flex-col gap-4 rounded-md bg-stock p-4 shadow-sm ring-1 ring-rule">
@@ -121,18 +112,6 @@ export function CheckoutForm({
         ))}
         {!checkout.billing_type && <p className="w-full text-xs text-ink-soft">Choose one to print an invoice. A quotation doesn't need it.</p>}
       </fieldset>
-
-      <div className="flex flex-col gap-1">
-        <label className="flex items-center gap-2 font-semibold">
-          <input type="checkbox" className="accent-cyan" checked={checkout.custom_invoice} onChange={(e) => onCustomInvoice(e.target.checked)} />
-          Custom invoice
-        </label>
-        <p className="text-xs text-ink-soft">
-          {checkout.custom_invoice
-            ? 'Edit the rate on any line. Products, quantities and minimums stay as calculated; the invoice prints like any other.'
-            : 'Tick to override the calculated rate on any line.'}
-        </p>
-      </div>
 
       {gst && (
         <div className="flex flex-col gap-1 sm:max-w-sm">

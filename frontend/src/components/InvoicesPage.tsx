@@ -186,14 +186,7 @@ export function InvoicesPage() {
             <tbody>
               {data.invoices.map((row) => (
                 <tr key={row.bill_no} className="border-b border-rule last:border-0">
-                  <td className="px-3 py-2 font-semibold">
-                    {row.bill_no}
-                    {row.is_custom && (
-                      <span className="ml-1.5 rounded bg-cyan-wash px-1.5 py-0.5 text-xs font-semibold text-cyan-deep" title="Rates overridden (not printed)">
-                        Custom
-                      </span>
-                    )}
-                  </td>
+                  <td className="px-3 py-2 font-semibold">{row.bill_no}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{row.invoice_date}</td>
                   <td className="px-3 py-2">{row.business_name}</td>
                   <td className="px-3 py-2 text-right">{money(row.payable)}</td>

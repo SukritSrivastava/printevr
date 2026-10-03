@@ -168,9 +168,6 @@ def check_request(cfg: InvoiceConfig, body: InvoiceCreate) -> gst.GstSlab | None
 
     400 INVALID_GST_SLAB: a GST invoice without a (known) slab, or a slab on anything else.
     """
-    unpriced = [l.title for l in body.lines if l.unit_price == 0]
-    if unpriced and not body.is_custom:
-        raise _validation(f"Give '{unpriced[0]}' a price above 0", field="lines")
     if body.document_type == "quotation":
         if body.gst_slab:
             raise _slab_error("A GST slab only applies to a GST invoice, not a quotation", cfg)
@@ -340,7 +337,6 @@ def row_summary(row, series: str = "non_gst") -> dict:
         "received": format(row.received, "f"),
         "status": row.status,
         "version": row.version,
-        "is_custom": bool(row.is_custom),
     }
 
 
@@ -490,7 +486,6 @@ def create(store: Store, cat: Catalogue, cfg: InvoiceConfig, body: InvoiceCreate
             payable=m.payable,
             advance_pct=advance_for(body),
             received=m.received,
-            is_custom=body.is_custom,
             status=_status(series, m),
             version=1,
             created_at=now,

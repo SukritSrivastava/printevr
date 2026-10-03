@@ -138,7 +138,7 @@ export function CartPage({ onCalculator, invoiceSettings }: { onCalculator: () =
   const slab = chosenSlab(checkout.billing_type, checkout.gst_slab, settings.slabGroups)
   const m = invoiceMoney(lines, slab?.components ?? [], settings)
   const formErrors = checkoutErrors(checkout, { billNoRequired: !storage, quoteNoRequired: !storage })
-  const quoteMissing = quotationMissing(lines, formErrors, checkout.custom_invoice)
+  const quoteMissing = quotationMissing(lines, formErrors)
   const missing = printMissing(checkout, lines, formErrors, slab)
   const ready = missing.length === 0
   const quoteReady = quoteMissing.length === 0

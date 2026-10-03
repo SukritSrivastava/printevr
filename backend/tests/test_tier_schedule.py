@@ -90,8 +90,6 @@ def test_overpay_zone_matches_better_option_for_every_item(quote, catalogue, add
     checked = 0
     for item in catalogue.items.values():
         product = catalogue.products[item.product_id]
-        if not product.active:
-            continue
         wanted = [a.id for a in product.addons if not a.from_sheet or item.sample_charge is not None] if addons else []
         s = sched(quote(item_id=item.id, quantity=item.breakpoints[0], addons=wanted))
         for t in s["tiers"][:-1]:
