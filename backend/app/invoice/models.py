@@ -64,8 +64,11 @@ class CartLine(_Model):
     quantity: Decimal = Field(ge=1, le=MAX_QTY, decimal_places=2)
     unit_label: str = Field(min_length=1, max_length=20)
     middle: Middle = Field(default_factory=MiddleNone)
+    # The calculator's rate (catalogue lines and add-ons) and the rate billed. They differ when
+    # staff overrode the price (`price_edited`, set by the server); both are stored as issued.
     catalogue_unit_price: Decimal | None = Field(default=None, ge=0, le=MAX_PRICE, decimal_places=2)
-    unit_price: Money
+    # 0 only on a custom invoice (service.check_request); otherwise at least 0.01.
+    unit_price: Decimal = Field(ge=0, le=MAX_PRICE, decimal_places=2)
     warnings: list[dict] = Field(default_factory=list, max_length=10)
     price_edited: bool = False
     # GST invoices only. None = take the product's code from config/products.yaml; "" = none.
@@ -203,6 +206,10 @@ class InvoiceCreate(_Model):
     # Invoices only. None = pay in full before printing; a split (e.g. 80) asks this percent
     # before printing and the rest before dispatch. Ignored on a quotation.
     advance_pct: Decimal | None = Field(default=None, gt=0, le=100, decimal_places=2)
+    # Custom invoice: staff may override any line's rate (down to 0). Internal only: stored with
+    # the invoice, never printed. Everything else (products, quantities, minimums, numbering)
+    # is the normal flow.
+    is_custom: bool = False
 
     @property
     def series(self) -> str:

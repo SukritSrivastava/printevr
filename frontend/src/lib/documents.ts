@@ -13,9 +13,15 @@ export const GSTIN = /^[0-9]{2}[0-9A-Z]{13}$/
 
 export type CheckoutErrors = Partial<Record<keyof Checkout, string>>
 
+/** A rate the server takes: above 0, or 0 or more on a custom invoice. */
+export const rateValid = (rate: string, custom = false) => {
+  const paise = toPaise(rate)
+  return paise !== null && (custom ? paise >= 0n : paise > 0n)
+}
+
 /** A line is ready to print: priced, titled, every spec filled in. */
-export const lineReady = (l: CartLine) =>
-  (toPaise(l.unit_price) ?? 0n) > 0n &&
+export const lineReady = (l: CartLine, custom = false) =>
+  rateValid(l.unit_price, custom) &&
   !!l.title.trim() &&
   Number(l.quantity) >= 1 &&
   [...l.specs, ...l.customisations].every((s) => s.value.trim()) &&
@@ -78,10 +84,10 @@ export function advancePercent(c: Checkout, configured: string): string {
 const QUOTE_FIELDS: (keyof Checkout)[] = ['phone', 'quote_no', 'invoice_date', 'saving_amount']
 
 /** What the Quotation button still needs (empty = ready). Bill type plays no part. */
-export function quotationMissing(lines: CartLine[], errors: CheckoutErrors): string[] {
+export function quotationMissing(lines: CartLine[], errors: CheckoutErrors, custom = false): string[] {
   const out: string[] = []
   if (!lines.length) out.push('add an item to the cart')
-  else if (!lines.every(lineReady)) out.push('give every line a price')
+  else if (!lines.every((l) => lineReady(l, custom))) out.push('give every line a price')
   if (QUOTE_FIELDS.some((f) => errors[f])) out.push('fix the fields marked in red')
   return out
 }
@@ -90,7 +96,7 @@ export function quotationMissing(lines: CartLine[], errors: CheckoutErrors): str
 export function printMissing(c: Checkout, lines: CartLine[], errors: CheckoutErrors, slab: GstSlab | undefined): string[] {
   const out: string[] = []
   if (!lines.length) out.push('add an item to the cart')
-  else if (!lines.every(lineReady)) out.push('give every line a price')
+  else if (!lines.every((l) => lineReady(l, c.custom_invoice))) out.push('give every line a price')
   if (!c.billing_type) return [...out, 'choose a bill type']
   if (c.billing_type === 'non_gst' && (errors.business_name || errors.address || errors.phone)) out.push('fill in Ship To')
   if (c.billing_type === 'gst') {
@@ -190,5 +196,6 @@ export function documentRequest(
     saving_amount: c.saving_amount && toPaise(c.saving_amount) ? c.saving_amount : null,
     print_mode: quotation ? null : kind,
     advance_pct: !quotation && c.split_payment ? advancePercent(c, ctx.advancePct) : null,
+    is_custom: c.custom_invoice,
   }
 }

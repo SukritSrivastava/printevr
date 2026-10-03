@@ -39,6 +39,8 @@ export interface Checkout {
   split_payment: boolean
   /** null = not touched: shows (and sends) the config's advance percent */
   advance_pct: string | null
+  /** Custom invoice: every line's rate is editable (down to 0). Never printed. */
+  custom_invoice: boolean
 }
 
 /** The GST invoice fields whose blank start shows a default (gst_field_defaults). */
@@ -90,6 +92,7 @@ export const emptyCheckout = (): Checkout => ({
   saving_amount: '',
   split_payment: false,
   advance_pct: null,
+  custom_invoice: false,
 })
 
 type Action =
@@ -100,6 +103,9 @@ type Action =
   | { type: 'clear' }
   | { type: 'checkout'; patch: Partial<Checkout> }
   | { type: 'fresh'; changes: ChangedLine[] }
+
+/** Back to the calculator's rate (custom invoice "Reset to calculated price"). */
+export const calculatedPrice = (l: CartLine): Partial<CartLine> => (l.catalogue_unit_price === null ? {} : { unit_price: l.catalogue_unit_price })
 
 /** A price counts as edited when it differs from the catalogue price. */
 export const isEdited = (l: CartLine) => l.catalogue_unit_price !== null && Number(l.unit_price) !== Number(l.catalogue_unit_price)

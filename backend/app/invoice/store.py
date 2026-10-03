@@ -9,7 +9,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import JSON, Date, DateTime, Integer, Numeric, String, create_engine, delete, func, inspect, or_, select, text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Integer, Numeric, String, create_engine, delete, func, inspect, or_, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -49,6 +49,8 @@ class _Document:
     # Null on rows saved before it was chosen per invoice: those used config advance_pct (80).
     advance_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2, asdecimal=True), nullable=True)
     received: Mapped[Decimal] = mapped_column(AMOUNT, nullable=False)
+    # Custom invoice (rates overridden by staff); internal, never printed. Null on older rows.
+    is_custom: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -145,9 +147,11 @@ class Store:
     def _add_missing_columns(self) -> None:
         """create_all() doesn't alter existing tables: add columns introduced since (all nullable)."""
         added = {
-            InvoiceRow.__tablename__: {"gst": "JSON", "salesperson": "VARCHAR(100)", "advance_pct": "NUMERIC(5,2)"},
-            GstInvoiceRow.__tablename__: {"advance_pct": "NUMERIC(5,2)"},
-            QuotationRow.__tablename__: {"advance_pct": "NUMERIC(5,2)"},
+            InvoiceRow.__tablename__: {
+                "gst": "JSON", "salesperson": "VARCHAR(100)", "advance_pct": "NUMERIC(5,2)", "is_custom": "BOOLEAN",
+            },
+            GstInvoiceRow.__tablename__: {"advance_pct": "NUMERIC(5,2)", "is_custom": "BOOLEAN"},
+            QuotationRow.__tablename__: {"advance_pct": "NUMERIC(5,2)", "is_custom": "BOOLEAN"},
             InvoiceEvent.__tablename__: {"series": "VARCHAR(16)"},
         }
         for table, columns in added.items():

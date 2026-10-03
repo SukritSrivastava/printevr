@@ -120,6 +120,8 @@ export interface InvoiceCreate {
   print_mode: 'unpaid' | 'paid' | null
   /** Invoices only: percent due before printing when the payment is split; null = pay in full. */
   advance_pct: string | null
+  /** Custom invoice: rates overridden by staff (0 allowed). Stored, never printed. */
+  is_custom: boolean
 }
 
 /** "issued": a quotation, which has no payment state. */
@@ -137,6 +139,8 @@ export interface InvoiceSummary {
   received: string
   status: InvoiceStatus
   version: number
+  /** A custom invoice (overridden rates). Staff-only: never printed. */
+  is_custom?: boolean
 }
 
 export interface InvoiceList {

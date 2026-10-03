@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, calculate } from '../api/client'
 import type { CartLine, SpecLine } from '../api/invoiceTypes'
-import { isEdited, useCart, withFreshPrice } from '../cart/CartProvider'
+import { calculatedPrice, isEdited, useCart, withFreshPrice } from '../cart/CartProvider'
+import { rateValid } from '../lib/documents'
 import { money } from '../lib/format'
 import { fromPaise, lineSubtotal, toPaise } from '../lib/invoiceMoney'
 import { MiddleEditor } from './MiddleEditor'
@@ -33,7 +34,8 @@ function Specs({ items }: { items: SpecLine[] }) {
 }
 
 export function CartLineCard({ line, index, count, changed }: Props) {
-  const { dispatch, lines } = useCart()
+  const { dispatch, lines, checkout } = useCart()
+  const custom = checkout.custom_invoice
   const [editing, setEditing] = useState(false)
   const [editPrice, setEditPrice] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
@@ -132,6 +134,39 @@ export function CartLineCard({ line, index, count, changed }: Props) {
         </div>
       </div>
 
+      {custom && (
+        <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2 rounded-md bg-sheet p-3">
+          <div className="flex flex-col gap-1">
+            <label htmlFor={`rate-${line.id}`} className="text-sm font-semibold text-ink-soft">
+              Rate per unit (₹)
+            </label>
+            <input
+              id={`rate-${line.id}`}
+              className="field w-36!"
+              inputMode="decimal"
+              value={line.unit_price}
+              onChange={(e) => update({ unit_price: e.target.value.replace(/[^\d.]/g, '') })}
+              aria-invalid={rateValid(line.unit_price, true) ? undefined : 'true'}
+              aria-describedby={`rate-help-${line.id}`}
+            />
+          </div>
+          <p id={`rate-help-${line.id}`} className="pb-2 text-sm text-ink-soft">
+            {!rateValid(line.unit_price, true) ? (
+              <span className="text-stop">Enter a rate of 0 or more (up to 2 decimals)</span>
+            ) : line.catalogue_unit_price !== null ? (
+              <>Calculated: {money(line.catalogue_unit_price)}</>
+            ) : (
+              'Custom item: no calculated rate'
+            )}
+          </p>
+          {edited && (
+            <button type="button" className="pb-2 text-sm text-cyan-deep underline" onClick={() => update(calculatedPrice(line))}>
+              Reset to calculated price
+            </button>
+          )}
+        </div>
+      )}
+
       {!editing && (
         <div className="mt-3 flex flex-col gap-2">
           {line.specs.length > 0 && <Specs items={line.specs} />}
@@ -187,43 +222,45 @@ export function CartLineCard({ line, index, count, changed }: Props) {
               <input id={`unit-${line.id}`} className="field" maxLength={20} value={line.unit_label} onChange={(e) => update({ unit_label: e.target.value })} />
             </div>
           </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor={`price-${line.id}`} className="text-sm font-semibold text-ink-soft">
-              Unit price (₹)
-            </label>
-            {editPrice || line.source === 'custom' ? (
-              <input
-                id={`price-${line.id}`}
-                className="field"
-                inputMode="decimal"
-                value={line.unit_price}
-                onChange={(e) => update({ unit_price: e.target.value.replace(/[^\d.]/g, '') })}
-                aria-invalid={(toPaise(line.unit_price) ?? 0n) > 0n ? undefined : 'true'}
-              />
-            ) : (
-              <p className="flex items-center gap-3">
-                <span id={`price-${line.id}`} className="font-semibold">
-                  {money(line.unit_price)}
-                </span>
-                <button type="button" className="text-sm text-cyan-deep underline" onClick={() => setEditPrice(true)}>
-                  Edit price
-                </button>
-              </p>
-            )}
-            {line.catalogue_unit_price !== null && (
-              <label className="mt-1 flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="accent-cyan"
-                  checked={showCatalogueMiddle}
-                  onChange={(e) =>
-                    update({ middle: e.target.checked ? { kind: 'reference_price', amount: line.catalogue_unit_price! } : { kind: 'none' } })
-                  }
-                />
-                Show catalogue price in the middle column
+          {!custom && (
+            <div className="flex flex-col gap-1">
+              <label htmlFor={`price-${line.id}`} className="text-sm font-semibold text-ink-soft">
+                Unit price (₹)
               </label>
-            )}
-          </div>
+              {editPrice || line.source === 'custom' ? (
+                <input
+                  id={`price-${line.id}`}
+                  className="field"
+                  inputMode="decimal"
+                  value={line.unit_price}
+                  onChange={(e) => update({ unit_price: e.target.value.replace(/[^\d.]/g, '') })}
+                  aria-invalid={(toPaise(line.unit_price) ?? 0n) > 0n ? undefined : 'true'}
+                />
+              ) : (
+                <p className="flex items-center gap-3">
+                  <span id={`price-${line.id}`} className="font-semibold">
+                    {money(line.unit_price)}
+                  </span>
+                  <button type="button" className="text-sm text-cyan-deep underline" onClick={() => setEditPrice(true)}>
+                    Edit price
+                  </button>
+                </p>
+              )}
+              {line.catalogue_unit_price !== null && (
+                <label className="mt-1 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="accent-cyan"
+                    checked={showCatalogueMiddle}
+                    onChange={(e) =>
+                      update({ middle: e.target.checked ? { kind: 'reference_price', amount: line.catalogue_unit_price! } : { kind: 'none' } })
+                    }
+                  />
+                  Show catalogue price in the middle column
+                </label>
+              )}
+            </div>
+          )}
           <MiddleEditor value={line.middle} onChange={(middle) => update({ middle })} />
         </div>
       )}
