@@ -152,6 +152,4 @@ def test_f2_dates():
 
 def test_f3_filename(cfg):
     name = fmt.filename(cfg.filename, 18, "Sogat Jutti Store!", cfg.status_labels["part_paid"])
-    assert name == "Invoice_18_Sogat-Jutti-Store.pdf"  # no payment status in the name (config)
-    name = fmt.filename("Invoice_{bill_no}_{business}_{status}.pdf", 18, "Sogat Jutti Store!", cfg.status_labels["part_paid"])
     assert name == "Invoice_18_Sogat-Jutti-Store_Part-paid.pdf"

@@ -120,11 +120,9 @@ def _header(doc: InvoiceDocument, g: dict, cfg: InvoiceConfig) -> list[Op]:
         }
     else:
         values = {k: "" for k in G.FIELDS}
-    fields = dict(G.FIELDS)
-    if not cfg.print_payment_details:
-        # No payment details on a printed invoice: the P.O Date moves up into the Payment Terms row.
-        fields["po_date"] = fields.pop("payment_terms")
-    for key, (x, base, size, max_x) in fields.items():
+    for key, (x, base, size, max_x) in G.FIELDS.items():
+        if key == "payment_terms" and not cfg.print_payment_details:
+            continue  # no payment details on a printed invoice
         text = (g["field_labels"][key] + values[key]).rstrip()
         ops.append(Text(x, base, text, G.BOLD, _fit(text, G.BOLD, size, max_x - x, G.FIELD_MIN_SIZE)))
     return ops

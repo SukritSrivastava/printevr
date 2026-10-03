@@ -106,7 +106,7 @@ def test_a3_unpaid_invoice(app, client, auth):
     assert r.headers["content-type"] == "application/pdf"
     assert r.headers["x-bill-no"] == "19"
     assert r.headers["x-invoice-status"] == "unpaid"
-    assert 'filename="Invoice_19_Sogat-Jutti-Store.pdf"' in r.headers["content-disposition"]
+    assert 'filename="Invoice_19_Sogat-Jutti-Store_Unpaid.pdf"' in r.headers["content-disposition"]
     invoices, events = rows(app)
     assert len(invoices) == 1 and [e.event for e in events] == ["created"]
     assert str(invoices[0].total) == "26250.00"
@@ -181,7 +181,7 @@ def test_a8_record_payments(app, client, auth):
 
     r = client.post("/api/invoices/19/payments", json={"amount": "16250", "date": "2026-10-01", "mode": "upi"}, headers=auth)
     assert r.headers["x-invoice-status"] == "paid"
-    assert "Invoice_19_Sogat-Jutti-Store.pdf" in r.headers["content-disposition"]  # no status in the name
+    assert "Paid.pdf" in r.headers["content-disposition"]
     r = client.post("/api/invoices/19/payments", json={"amount": "1", "date": "2026-10-01", "mode": "upi"}, headers=auth)
     assert r.status_code == 422 and r.json()["error"]["code"] == "ALREADY_PAID"
     assert client.post("/api/invoices/99/payments", json={"amount": "1", "date": "2026-10-01"}, headers=auth).status_code == 404
@@ -312,7 +312,7 @@ def test_unsaved_invoice_downloads_without_storing(unsaved):
     r = c.post("/api/invoices", json=invoice_body([k1_line(c)], bill_no=19), headers=auth)
     assert r.status_code == 201 and r.content.startswith(b"%PDF")
     assert r.headers["x-bill-no"] == "19" and r.headers["x-invoice-status"] == "unpaid"
-    assert 'filename="Invoice_19_Sogat-Jutti-Store.pdf"' in r.headers["content-disposition"]
+    assert 'filename="Invoice_19_Sogat-Jutti-Store_Unpaid.pdf"' in r.headers["content-disposition"]
     # the same bill number can be printed again (e.g. after a payment): nothing is stored
     pay = [{"amount": "10000", "date": "2026-09-30", "mode": "upi", "note": None}]
     r = c.post("/api/invoices", json=invoice_body([k1_line(c)], bill_no=19, print_mode="paid", payments=pay), headers=auth)

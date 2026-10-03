@@ -53,9 +53,7 @@ advance_pct: 80
 # they only stay off the PDF. true prints all of it again, exactly as before.
 print_payment_details: false
 pad_single_digit_unit_price: true
-# No payment status in the file name either (print_payment_details is false); {status} may be
-# added back to show Unpaid / Part-paid / Paid.
-filename: "Invoice_{bill_no}_{business}.pdf"
+filename: "Invoice_{bill_no}_{business}_{status}.pdf"
 status_labels: { unpaid: Unpaid, part_paid: Part-paid, paid: Paid }
 # Every new invoice (Non-GST or GST) and every recorded payment is emailed here with its PDF;
 # quotations are not. Sending needs SMTP_PASSWORD (a Gmail app password for SMTP_USER, which
@@ -146,7 +144,7 @@ quotation:
 # "orignal copy", "INVOICE N0." and "Good once sold". Numbered in its own series.
 gst_invoice:
   bill_no_start: 1
-  filename: "GST_Invoice_{bill_no}_{business}.pdf"
+  filename: "GST_Invoice_{bill_no}_{business}_{status}.pdf"
   seller_name: "BASTTA"
   seller_lines:
     - "GSTIN :- 04DYFPR0054B1ZX"
