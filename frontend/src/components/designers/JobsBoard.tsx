@@ -3,6 +3,8 @@ import { Fragment, useEffect, useState } from 'react'
 import { fetchJobs, type Designer, type Job, type JobFilters } from '../../api/designers'
 import { JOB_STATUSES, PENDING_STATUSES, type JobStatus } from '../../lib/designers'
 import { money } from '../../lib/format'
+import { designJobMessage, designListMessage } from '../../lib/whatsapp'
+import { WhatsAppShare } from '../WhatsAppShare'
 import { HistoryDialog, invoiceLabel, StatusSelect, VendorInput, When } from './JobControls'
 import { describe, useLive, useNow } from './live'
 import { ProductDesigns } from './ProductDesigns'
@@ -103,6 +105,13 @@ export function JobsBoard({ designers }: { designers: Designer[] }) {
           Pending only
         </label>
       </div>
+      <div className="flex justify-end">
+        <WhatsAppShare
+          label="Share list on WhatsApp"
+          disabled={jobs.length === 0}
+          message={() => designListMessage(jobs, designer === null ? null : (designers.find((d) => d.id === designer)?.name ?? null))}
+        />
+      </div>
 
       {query.isError && (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-stop">
@@ -147,6 +156,9 @@ export function JobsBoard({ designers }: { designers: Designer[] }) {
                         {invoiceLabel(job)}
                       </button>
                       <div className="text-xs text-ink-soft">{money(job.invoice_total)}</div>
+                      <div className="mt-1.5">
+                        <WhatsAppShare message={() => designJobMessage(job)} ariaLabel={`Share invoice ${invoiceLabel(job)} on WhatsApp`} />
+                      </div>
                     </td>
                     <td className="max-w-56 px-3 py-2">
                       <div className="font-semibold">{job.customer_name}</div>
@@ -205,6 +217,7 @@ export function JobsBoard({ designers }: { designers: Designer[] }) {
                 <p className="text-xs text-ink-soft">
                   Updated <When iso={job.updated_at} now={now} inline />
                 </p>
+                <WhatsAppShare message={() => designJobMessage(job)} ariaLabel={`Share invoice ${invoiceLabel(job)} on WhatsApp`} />
               </li>
             ))}
           </ul>

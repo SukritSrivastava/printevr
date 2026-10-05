@@ -24,9 +24,11 @@ import {
 import { REFRESH_MS, istDateTime, timeAgo } from '../../lib/designers'
 import { money } from '../../lib/format'
 import { STAGES, stageLabel, type Stage } from '../../lib/production'
+import { productionJobMessage, productionListMessage } from '../../lib/whatsapp'
 import { Dialog } from '../Dialog'
 import { StaffCancelled, useStaff } from '../StaffLoginDialog'
 import { useToast } from '../Toast'
+import { WhatsAppShare } from '../WhatsAppShare'
 import { ManageEmployees } from './ManageEmployees'
 
 /** Every Production query starts with this, so one invalidate refreshes them all. */
@@ -107,6 +109,9 @@ export function ProductionPage() {
       ) : (
         <>
           <AddJob employees={staff} disabled={!employees.data} onManage={() => setManaging(true)} />
+          <div className="flex justify-end">
+            <WhatsAppShare label="Share list on WhatsApp" disabled={list.length === 0} message={() => productionListMessage(list)} />
+          </div>
 
           {jobs.isPending && <p className="text-ink-soft">Loading production jobs…</p>}
           {jobs.data && list.length === 0 && (
@@ -384,14 +389,17 @@ function JobCard({ job, employees, onRemove }: { job: ProductionJob; employees: 
               onChange={(id) => update.mutate({ id: job.id, employee_id: id })}
             />
           </label>
-          <button
-            type="button"
-            className="rounded-md px-3 py-1.5 text-sm font-semibold text-stop ring-1 ring-rule"
-            aria-label={`Remove ${ref} from production`}
-            onClick={onRemove}
-          >
-            Remove
-          </button>
+          <div className="flex items-center gap-2">
+            <WhatsAppShare message={() => productionJobMessage(job)} ariaLabel={`Share ${ref} on WhatsApp`} />
+            <button
+              type="button"
+              className="rounded-md px-3 py-1.5 text-sm font-semibold text-stop ring-1 ring-rule"
+              aria-label={`Remove ${ref} from production`}
+              onClick={onRemove}
+            >
+              Remove
+            </button>
+          </div>
         </div>
         {job.order_record && <OrderRecord record={job.order_record} />}
       </header>
