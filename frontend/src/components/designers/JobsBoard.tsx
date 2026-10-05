@@ -1,19 +1,42 @@
 // View A: every job, newest first, with filters. A table on wide screens, cards on phones.
 import { Fragment, useEffect, useState } from 'react'
 import { fetchJobs, type Designer, type Job, type JobFilters } from '../../api/designers'
-import { JOB_STATUSES, type JobStatus } from '../../lib/designers'
+import { JOB_STATUSES, PENDING_STATUSES, type JobStatus } from '../../lib/designers'
 import { money } from '../../lib/format'
 import { HistoryDialog, invoiceLabel, StatusSelect, VendorInput, When } from './JobControls'
 import { describe, useLive, useNow } from './live'
 import { ProductDesigns } from './ProductDesigns'
 
 const SEARCH_DEBOUNCE_MS = 300
+// This browser's last "Pending only" choice, so a refresh doesn't hide jobs that just reached the
+// last stage. A convenience only: unreadable storage (private window, blocked) means the default.
+const PENDING_ONLY_KEY = 'printevr.designers.pendingOnly'
+
+function savedPendingOnly(): boolean {
+  try {
+    return localStorage.getItem(PENDING_ONLY_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
+function savePendingOnly(value: boolean) {
+  try {
+    localStorage.setItem(PENDING_ONLY_KEY, String(value))
+  } catch {
+    // Not remembered; the board still works.
+  }
+}
 
 export function JobsBoard({ designers }: { designers: Designer[] }) {
   const now = useNow()
   const [designer, setDesigner] = useState<number | null>(null)
   const [status, setStatus] = useState<JobStatus | null>(null)
-  const [pendingOnly, setPendingOnly] = useState(true)
+  const [pendingOnly, setPendingOnlyState] = useState(savedPendingOnly)
+  const setPendingOnly = (value: boolean) => {
+    setPendingOnlyState(value)
+    savePendingOnly(value)
+  }
   const [q, setQ] = useState('')
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<Job | null>(null)
@@ -52,7 +75,7 @@ export function JobsBoard({ designers }: { designers: Designer[] }) {
             onChange={(e) => {
               const s = e.target.value ? (Number(e.target.value) as JobStatus) : null
               setStatus(s)
-              if (s === 4) setPendingOnly(false) // stage 4 is never pending
+              if (s !== null && !PENDING_STATUSES.includes(s)) setPendingOnly(false) // stage 6 is never pending
             }}
           >
             <option value="">Any</option>
@@ -74,7 +97,7 @@ export function JobsBoard({ designers }: { designers: Designer[] }) {
             checked={pendingOnly}
             onChange={(e) => {
               setPendingOnly(e.target.checked)
-              if (e.target.checked && status === 4) setStatus(null)
+              if (e.target.checked && status !== null && !PENDING_STATUSES.includes(status)) setStatus(null)
             }}
           />
           Pending only

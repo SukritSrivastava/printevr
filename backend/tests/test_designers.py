@@ -211,13 +211,43 @@ def test_status_changes_are_logged_including_going_back(client):
     assert all(x["changed_at"] for x in h)
 
 
-@pytest.mark.parametrize("bad", [0, 5, "2", None, 2.5])
-def test_status_must_be_1_to_4(client, bad):
+@pytest.mark.parametrize("bad", [0, 7, "2", None, 2.5])
+def test_status_must_be_1_to_6(client, bad):
     print_invoice(client)
     job_id = client.get("/api/jobs").json()["jobs"][0]["id"]
     r = client.patch(f"/api/jobs/{job_id}", json={"status": bad})
     assert r.status_code == 422, r.text
     assert client.get("/api/jobs").json()["jobs"][0]["status"] == 1
+
+
+def test_final_design_and_final_vendor(client):
+    """Stages 5 and 6 save; only 6, the last, counts as done."""
+    print_invoice(client)
+    job_id = client.get("/api/jobs").json()["jobs"][0]["id"]
+    for status, label, pending in ((4, "Sent for sampling", True), (5, "Final design", True), (6, "Final vendor", False)):
+        r = client.patch(f"/api/jobs/{job_id}", json={"status": status})
+        assert r.status_code == 200, r.text
+        assert (r.json()["status"], r.json()["status_label"], r.json()["pending"]) == (status, label, pending)
+        assert [j["id"] for j in client.get("/api/jobs", params={"status": status}).json()["jobs"]] == [job_id]
+        assert client.get("/api/jobs", params={"pending": True}).json()["total"] == (1 if pending else 0)
+    # Stage 6 with no vendor is allowed (the UI only warns).
+    assert client.get("/api/jobs").json()["jobs"][0]["vendor_name"] is None
+    h = client.get(f"/api/jobs/{job_id}/history").json()["history"]
+    assert [(x["new_status"], x["new_label"]) for x in h][-2:] == [(5, "Final design"), (6, "Final vendor")]
+
+
+def test_products_reach_final_design_and_final_vendor(client):
+    print_invoice(client)
+    job = client.get("/api/jobs").json()["jobs"][0]
+    line_no = job["products"][0]["line_no"]
+    for status, pending in ((5, True), (6, False)):
+        r = client.patch(f"/api/jobs/{job['id']}/products/{line_no}", json={"status": status})
+        assert r.status_code == 200, r.text
+        product = r.json()["products"][0]
+        assert (product["status"], product["pending"]) == (status, pending)
+    assert client.get("/api/jobs").json()["jobs"][0]["products"][0]["status"] == 6
+    assert client.get("/api/jobs").json()["jobs"][0]["status"] == 1  # the order's own status is separate
+    assert client.patch(f"/api/jobs/{job['id']}/products/{line_no}", json={"status": 7}).status_code == 422
 
 
 def test_unknown_job_and_fields(client):
@@ -254,7 +284,7 @@ def test_filters(client):
     gst = client.post("/api/invoices", json=gst_body([k1_line(client)], "intra_18"))
     assert designer_of(gst) == "Namit"
     jobs = client.get("/api/jobs").json()["jobs"]
-    client.patch(f"/api/jobs/{jobs[-1]['id']}", json={"status": 4})  # bill 19 (Namit): done
+    client.patch(f"/api/jobs/{jobs[-1]['id']}", json={"status": 6})  # bill 19 (Namit): done
     namit = designer_id(client, "Namit")
 
     def bills(**params):
@@ -262,7 +292,7 @@ def test_filters(client):
 
     assert bills(designer=namit, pending=True) == [("gst", 1), ("non_gst", 21)]
     assert bills(designer=namit) == [("gst", 1), ("non_gst", 21), ("non_gst", 19)]
-    assert bills(status=4) == [("non_gst", 19)]
+    assert bills(status=6) == [("non_gst", 19)]
     assert bills(q="jairpur") == [("gst", 1)]
     assert bills(q="#20") == [("non_gst", 20)]
     assert bills(q="1") == [("gst", 1)]
@@ -273,11 +303,11 @@ def test_workload(client):
     for _ in range(5):
         print_invoice(client)
     jobs = client.get("/api/jobs").json()["jobs"]  # 23 Namit, 22 Ajendra, 21 Namit, 20 Ajendra, 19 Namit
-    client.patch(f"/api/jobs/{jobs[4]['id']}", json={"status": 4})
+    client.patch(f"/api/jobs/{jobs[4]['id']}", json={"status": 6})
     client.patch(f"/api/jobs/{jobs[2]['id']}", json={"status": 2})
     w = {d["name"]: d for d in client.get("/api/workload").json()["designers"]}
-    assert w["Namit"]["pending"] == 2 and w["Namit"]["by_status"] == {"1": 1, "2": 1, "3": 0, "4": 1}
-    assert w["Ajendra"]["pending"] == 2 and w["Ajendra"]["by_status"] == {"1": 2, "2": 0, "3": 0, "4": 0}
+    assert w["Namit"]["pending"] == 2 and w["Namit"]["by_status"] == {"1": 1, "2": 1, "3": 0, "4": 0, "5": 0, "6": 1}
+    assert w["Ajendra"]["pending"] == 2 and w["Ajendra"]["by_status"] == {"1": 2, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0}
     assert w["Namit"]["oldest_pending_at"] == jobs[2]["assigned_at"]  # 19 is done, so 21
     assert [j["bill_no"] for j in w["Namit"]["jobs"]] == [23, 21, 19]  # pending first, newest first
 

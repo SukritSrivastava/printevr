@@ -13,16 +13,18 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-# The four progress stages, in order. The UI shows these labels.
+# The six progress stages, in order. The UI shows these labels.
 STATUSES: dict[int, str] = {
     1: "Work assigned",
     2: "Sent to customer for approval",
     3: "Approval received",
     4: "Sent for sampling",
+    5: "Final design",
+    6: "Final vendor",
 }
-# Stages that still need the designer. Stage 4 counts as done from the designer's side.
+# Stages that still need the designer. Only stage 6 (the last) counts as done.
 # The frontend has the same constant (src/lib/designers.ts); a test keeps them equal.
-PENDING_STATUSES: frozenset[int] = frozenset({1, 2, 3})
+PENDING_STATUSES: frozenset[int] = frozenset({1, 2, 3, 4, 5})
 
 # Invoices that become design jobs. Quotations don't.
 JOB_SERIES = ("non_gst", "gst")
@@ -62,7 +64,7 @@ class DesignJob(DesignBase):
     __table_args__ = (
         UniqueConstraint("series", "bill_no", name="design_jobs_invoice_unique"),
         CheckConstraint("series IN ('non_gst', 'gst')"),
-        CheckConstraint("status BETWEEN 1 AND 4"),
+        CheckConstraint("status BETWEEN 1 AND 6"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

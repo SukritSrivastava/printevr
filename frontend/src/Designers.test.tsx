@@ -77,6 +77,7 @@ function renderPage() {
   )
 }
 
+const lastJobsUrl = (m: Mock) => m.urls.filter((u) => u.includes('/api/jobs?')).at(-1)
 const jobCalls = (m: Mock) => m.urls.filter((u) => u.includes('/api/jobs?')).length
 
 function setVisibility(state: 'visible' | 'hidden') {
@@ -100,7 +101,10 @@ describe('IST times', () => {
 })
 
 describe('Designer Assignment tab', () => {
-  beforeEach(() => setVisibility('visible'))
+  beforeEach(() => {
+    setVisibility('visible')
+    localStorage.clear()
+  })
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
@@ -119,6 +123,20 @@ describe('Designer Assignment tab', () => {
     expect(within(rows[0]).getAllByText('3 Oct 2026, 4:35 PM').length).toBeGreaterThan(0)
     // Pending only is on by default.
     expect(m.urls.find((u) => u.includes('/api/jobs?'))).toContain('pending=true')
+  })
+
+  it('remembers Pending only after a refresh', async () => {
+    const m = mockApi()
+    const user = userEvent.setup()
+    const first = renderPage()
+    await screen.findAllByRole('table')
+    await user.click(screen.getByLabelText('Pending only'))
+    await waitFor(() => expect(lastJobsUrl(m)).toMatch(/\/api\/jobs\?$/))
+    first.unmount()
+
+    renderPage()
+    expect(screen.getByLabelText('Pending only')).not.toBeChecked()
+    await waitFor(() => expect(lastJobsUrl(m)).toMatch(/\/api\/jobs\?$/))
   })
 
   it('filters by designer', async () => {

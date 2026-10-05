@@ -2,7 +2,7 @@
 // order on the jobs board; a change to one product never touches another or the order itself.
 import { useState } from 'react'
 import type { Designer, Job, ProductDesign } from '../../api/designers'
-import { JOB_STATUSES, type JobStatus } from '../../lib/designers'
+import { FINAL_VENDOR_WARNING, JOB_STATUSES, missingFinalVendor, type JobStatus } from '../../lib/designers'
 import { invoiceLabel, VENDOR_LIST_ID } from './JobControls'
 import { useProductUpdate } from './live'
 
@@ -88,6 +88,11 @@ function ProductRow({ job, product, index, designers }: { job: Job; product: Pro
             </option>
           ))}
         </select>
+        {missingFinalVendor(product) && (
+          <span role="status" className="text-xs text-warn">
+            {FINAL_VENDOR_WARNING}
+          </span>
+        )}
       </label>
       <label className="flex flex-col gap-0.5 text-xs md:text-sm">
         <span className="font-semibold text-ink-soft md:sr-only">Vendor</span>

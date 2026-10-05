@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { fetchHistory, type Job } from '../../api/designers'
-import { istDateTime, JOB_STATUSES, timeAgo, type JobStatus } from '../../lib/designers'
+import { FINAL_VENDOR_WARNING, istDateTime, JOB_STATUSES, missingFinalVendor, timeAgo, type JobStatus } from '../../lib/designers'
 import { Dialog } from '../Dialog'
 import { useStaff } from '../StaffLoginDialog'
 import { describe, ROOT, useJobUpdate } from './live'
@@ -32,18 +32,25 @@ export function When({ iso, now, inline }: { iso: string; now: number; inline?: 
 export function StatusSelect({ job }: { job: Job }) {
   const update = useJobUpdate()
   return (
-    <select
-      className={`field !py-1.5 text-sm ${job.pending ? '' : 'text-save'}`}
-      aria-label={`Progress of invoice ${invoiceLabel(job)}`}
-      value={job.status}
-      onChange={(e) => update.mutate({ id: job.id, change: { status: Number(e.target.value) as JobStatus } })}
-    >
-      {JOB_STATUSES.map((s) => (
-        <option key={s.value} value={s.value}>
-          {s.value}. {s.label}
-        </option>
-      ))}
-    </select>
+    <>
+      <select
+        className={`field !py-1.5 text-sm ${job.pending ? '' : 'text-save'}`}
+        aria-label={`Progress of invoice ${invoiceLabel(job)}`}
+        value={job.status}
+        onChange={(e) => update.mutate({ id: job.id, change: { status: Number(e.target.value) as JobStatus } })}
+      >
+        {JOB_STATUSES.map((s) => (
+          <option key={s.value} value={s.value}>
+            {s.value}. {s.label}
+          </option>
+        ))}
+      </select>
+      {missingFinalVendor(job) && (
+        <span role="status" className="mt-1 block text-xs text-warn">
+          {FINAL_VENDOR_WARNING}
+        </span>
+      )}
+    </>
   )
 }
 

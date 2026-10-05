@@ -73,7 +73,8 @@ def test_database_enforces_the_rules(pg_url):
         with pytest.raises(psycopg.errors.UniqueViolation):
             conn.execute(insert, ("non_gst", 1, 1))
         with pytest.raises(psycopg.errors.CheckViolation):
-            conn.execute(insert, ("non_gst", 2, 5))
+            conn.execute(insert, ("non_gst", 2, 7))
+        conn.execute(insert, ("non_gst", 3, 6))  # Final vendor, the last stage
         with pytest.raises(psycopg.errors.CheckViolation):
             conn.execute(insert, ("quotation", 3, 1))
         with pytest.raises(psycopg.errors.CheckViolation):

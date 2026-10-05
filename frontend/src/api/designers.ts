@@ -76,7 +76,7 @@ export interface HistoryEntry {
 
 export interface DesignerLoad extends Designer {
   pending: number
-  by_status: Record<'1' | '2' | '3' | '4', number>
+  by_status: Record<'1' | '2' | '3' | '4' | '5' | '6', number>
   oldest_pending_at: string | null
   jobs: Job[]
 }

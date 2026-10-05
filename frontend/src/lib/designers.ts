@@ -1,17 +1,25 @@
 // Designer Assignment: job stages and IST time formatting.
 
-export type JobStatus = 1 | 2 | 3 | 4
+export type JobStatus = 1 | 2 | 3 | 4 | 5 | 6
 
 export const JOB_STATUSES: { value: JobStatus; label: string }[] = [
   { value: 1, label: 'Work assigned' },
   { value: 2, label: 'Sent to customer for approval' },
   { value: 3, label: 'Approval received' },
   { value: 4, label: 'Sent for sampling' },
+  { value: 5, label: 'Final design' },
+  { value: 6, label: 'Final vendor' },
 ]
 
-/** Stages that still need the designer; stage 4 is done from their side.
+/** Stages that still need the designer; only stage 6 (the last) is done.
  *  Same as PENDING_STATUSES in backend/app/designers/models.py (a backend test checks). */
-export const PENDING_STATUSES: readonly JobStatus[] = [1, 2, 3]
+export const PENDING_STATUSES: readonly JobStatus[] = [1, 2, 3, 4, 5]
+
+/** Stage 6 names the final vendor: with the Vendor field empty the UI asks for it (the save still goes through). */
+export const FINAL_VENDOR_STATUS: JobStatus = 6
+export const missingFinalVendor = (x: { status: number; vendor_name: string | null }) =>
+  x.status === FINAL_VENDOR_STATUS && !x.vendor_name?.trim()
+export const FINAL_VENDOR_WARNING = 'Fill in the final vendor.'
 
 export const statusLabel = (s: number) => JOB_STATUSES.find((x) => x.value === s)?.label ?? `Stage ${s}`
 

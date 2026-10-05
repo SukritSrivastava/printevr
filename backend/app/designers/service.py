@@ -259,7 +259,7 @@ def clean_vendor(value: str | None) -> str | None:
 
 
 def update_job(session: Session, job_id: int, changes: dict) -> dict:
-    """changes may hold `status` (1-4) and/or `vendor_name` (None or blank clears it)."""
+    """changes may hold `status` (1-6) and/or `vendor_name` (None or blank clears it)."""
     job = session.get(DesignJob, job_id)
     if job is None:
         raise _not_found("Job", job_id)
@@ -267,7 +267,7 @@ def update_job(session: Session, job_id: int, changes: dict) -> dict:
     if "status" in changes and changes["status"] != job.status:
         new = changes["status"]
         if new not in STATUSES:
-            raise DesignerError("VALIDATION_ERROR", "Status must be 1 to 4", 422, {"field": "status"})
+            raise DesignerError("VALIDATION_ERROR", "Status must be 1 to 6", 422, {"field": "status"})
         session.add(JobStatusHistory(job_id=job.id, old_status=job.status, new_status=new, changed_at=db_now(session)))
         job.status = new
         changed = True
@@ -428,7 +428,7 @@ def attach_products(session: Session, jobs: list[DesignJob], out: list[dict], na
 
 
 def update_product(session: Session, job_id: int, line_no: int, changes: dict) -> dict:
-    """One product's `designer_id` (None = the order's designer), `status` (1-4) and/or
+    """One product's `designer_id` (None = the order's designer), `status` (1-6) and/or
     `vendor_name`. Other products and the order itself are untouched. Answers the whole job."""
     if not items_ready(session):
         raise DesignerError(
@@ -454,7 +454,7 @@ def update_product(session: Session, job_id: int, line_no: int, changes: dict) -
     if "status" in changes and changes["status"] != item.status:
         new = changes["status"]
         if new not in STATUSES:
-            raise DesignerError("VALIDATION_ERROR", "Status must be 1 to 4", 422, {"field": "status"})
+            raise DesignerError("VALIDATION_ERROR", "Status must be 1 to 6", 422, {"field": "status"})
         session.add(DesignItemHistory(job_id=job_id, line_no=line_no, old_status=item.status, new_status=new,
                                       changed_at=db_now(session)))
         item.status = new

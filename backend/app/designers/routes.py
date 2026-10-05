@@ -34,12 +34,12 @@ class DesignerUpdate(_Body):
 
 class ProductUpdate(_Body):
     designer_id: int | None = None
-    status: int | None = Field(default=None, ge=1, le=4, strict=True)
+    status: int | None = Field(default=None, ge=1, le=6, strict=True)
     vendor_name: str | None = Field(default=None, max_length=500)
 
 
 class JobUpdate(_Body):
-    status: int | None = Field(default=None, ge=1, le=4, strict=True)
+    status: int | None = Field(default=None, ge=1, le=6, strict=True)
     vendor_name: str | None = Field(default=None, max_length=500)
 
 
@@ -79,7 +79,7 @@ def create_router(
     @router.get("/jobs")
     def get_jobs(
         designer: int | None = None,
-        status: int | None = Query(default=None, ge=1, le=4),
+        status: int | None = Query(default=None, ge=1, le=6),
         pending: bool = False,
         q: str | None = Query(default=None, max_length=60),
         limit: int = Query(default=200, ge=1, le=500),
@@ -90,14 +90,14 @@ def create_router(
     def patch_job(job_id: int, body: JobUpdate):
         changes = body.model_dump(include=body.model_fields_set)
         if changes.get("status", 0) is None:
-            return error("VALIDATION_ERROR", "Status must be 1 to 4", 422, {"field": "status"})
+            return error("VALIDATION_ERROR", "Status must be 1 to 6", 422, {"field": "status"})
         return run(lambda s: service.update_job(s, job_id, changes))
 
     @router.patch("/jobs/{job_id}/products/{line_no}")
     def patch_product(job_id: int, line_no: int, body: ProductUpdate):
         changes = body.model_dump(include=body.model_fields_set)
         if changes.get("status", 0) is None:
-            return error("VALIDATION_ERROR", "Status must be 1 to 4", 422, {"field": "status"})
+            return error("VALIDATION_ERROR", "Status must be 1 to 6", 422, {"field": "status"})
         return run(lambda s: service.update_product(s, job_id, line_no, changes))
 
     @router.get("/jobs/{job_id}/history")
