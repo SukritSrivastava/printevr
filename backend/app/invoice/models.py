@@ -53,8 +53,12 @@ Middle = Annotated[MiddleNone | MiddleNote | MiddleReference, Field(discriminato
 
 class CartLine(_Model):
     id: str | None = Field(default=None, max_length=64)
-    source: Literal["catalogue", "custom", "addon"]
+    # "customisation": a charged customisation typed in the cart for the line `parent_id`
+    # (a catalogue or custom line). It prints as its own row under its article, like an add-on.
+    source: Literal["catalogue", "custom", "addon", "customisation"]
     parent_id: str | None = Field(default=None, max_length=64)
+    # Customisation lines: per_unit follows the article's quantity; per_order is charged once.
+    charge_basis: Literal["per_unit", "per_order"] | None = None
     addon_id: str | None = Field(default=None, max_length=64)
     calc_request: CalculateRequest | None = None
     title: str = Field(min_length=1, max_length=80)

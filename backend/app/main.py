@@ -6,6 +6,7 @@ and rate-limit state) are on GET /api/admin/status behind X-Admin-Token, and in 
 """
 import hmac
 import ipaddress
+import json
 import logging
 import threading
 import time
@@ -14,8 +15,13 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from . import auth, migrations
+from .audit import describe as audit_describe
+from .audit import service as audit_service
+from .invoice import auth as staff_auth
+from .team import auth as team_auth
 from .catalogue import Catalogue
 from .designers.routes import PATHS as DESIGNER_PATHS
 from .designers.routes import create_router as designer_router
@@ -32,6 +38,8 @@ from .invoice.routes import create_router as invoice_router
 from .quote import QuoteError
 from .ratelimit import DatabaseRateLimiter, MemoryRateLimiter
 from .settings import Settings, get_settings
+from .team.routes import PATHS as TEAM_PATHS
+from .team.routes import create_router as team_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("printevr.api")
@@ -171,7 +179,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
-        allow_headers=["Content-Type", "X-Admin-Token", "Authorization"],
+        allow_headers=["Content-Type", "X-Admin-Token", "Authorization", "X-Team-Admin"],
         expose_headers=EXPOSED_HEADERS,
     )
 
@@ -188,6 +196,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(router)
     app.include_router(designer_router(app.state.invoices["get_store"], error, app.state.invoices["storage_error"]))
     app.include_router(production_router(app.state.invoices["get_store"], error, app.state.invoices["storage_error"]))
+    team_admin_limiter = login_limiter("team_admin_login", STAFF_LOGINS_PER_MINUTE)
+    app.state.login_limiters["team_admin"] = team_admin_limiter
+    app.include_router(
+        team_router(
+            settings,
+            app.state.invoices["get_store"],
+            error,
+            app.state.invoices["storage_error"],
+            client_ip=ip,
+            login_limiter=team_admin_limiter,
+        )
+    )
     if settings.site_password is None and settings.require_password:
         log.error("SITE_PASSWORD is not set: every protected route answers 503 AUTH_NOT_CONFIGURED")
 
@@ -201,11 +221,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 reason = app.state.invoices["disabled_reason"]()
                 if reason:
                     return error("INVOICING_DISABLED", reason, 503)
-            elif path.startswith("/api/invoices") or path.startswith(DESIGNER_PATHS) or path.startswith(PRODUCTION_PATHS):
+            elif path.startswith(("/api/invoices", *DESIGNER_PATHS, *PRODUCTION_PATHS, *TEAM_PATHS)):
                 blocked = app.state.invoices["guard"](request)
                 if blocked:
                     return blocked
         return await call_next(request)
+
+    audit_ready = {"tables": False}
+
+    def write_audit(request: Request, raw: bytes, status: int, headers: dict) -> None:
+        """Activity log (Logs tab): one row per change that succeeded. Never fails the request."""
+        try:
+            store = app.state.invoices["get_store"]()
+            if store is None:
+                return
+            if not audit_ready["tables"]:
+                audit_ready["tables"] = audit_service.tables_ready(store.engine)
+                if not audit_ready["tables"]:
+                    return
+            try:
+                body = json.loads(raw) if raw else None
+            except ValueError:
+                body = None
+            admin = bool(settings.admin_passcode and settings.secret_key) and team_auth.valid(
+                request.headers.get(team_auth.HEADER), settings.secret_key, settings.admin_passcode
+            )
+            staff = bool(settings.staff_passcode and settings.secret_key) and staff_auth.valid(
+                staff_auth.bearer(request.headers.get("authorization")), settings.secret_key, settings.staff_passcode
+            )
+            with store.session() as s:
+                audit_service.record(
+                    s,
+                    method=request.method,
+                    path=request.url.path,
+                    query=dict(request.query_params),
+                    body=body,
+                    status=status,
+                    headers=headers,
+                    actor_role="admin" if admin else "staff" if staff else "site",
+                    ip=ip(request),
+                    user_agent=request.headers.get("user-agent"),
+                )
+        except Exception:
+            log.exception("activity log: entry for %s %s not written", request.method, request.url.path)
+
+    @app.middleware("http")
+    async def activity_log(request: Request, call_next):
+        if not audit_describe.logged(request.method, request.url.path):
+            return await call_next(request)
+        raw = await request.body()
+        response = await call_next(request)
+        if response.status_code < 400:
+            await run_in_threadpool(write_audit, request, raw, response.status_code, dict(response.headers))
+        return response
 
     @app.exception_handler(RequestValidationError)
     async def on_validation_error(_: Request, exc: RequestValidationError):
@@ -257,6 +325,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "load_error": store.load_error,
             "invoice_config_loaded": invoice_cfg is not None,
             "invoicing_disabled": app.state.invoices["disabled_cause"](),
+            # Team tab admin (employee list, attendance corrections); None = available.
+            "team_admin_disabled": (
+                None
+                if settings.admin_passcode and settings.secret_key
+                else "ADMIN_PASSCODE is not set" if not settings.admin_passcode else "SECRET_KEY is not set"
+            ),
             "storage": storage_status(),
             "rate_limits": {"login": "database" if app.state.limits_shared else "memory", "calculate": "memory"},
             "counts": {
@@ -404,6 +478,7 @@ def build_catalog(cat: Catalogue) -> dict:
                             "price": str(a.price) if a.price is not None else None,
                             "basis": a.basis,
                             "from_sheet": a.from_sheet,
+                            "percent": str(a.percent) if a.percent is not None else None,
                         }
                         for a in p.addons
                     ],

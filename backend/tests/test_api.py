@@ -39,15 +39,15 @@ def test_health(client):
     assert client.get("/api/health").json() == {"status": "ok"}
     body = client.get("/api/admin/status", headers={"X-Admin-Token": TOKEN}).json()
     assert body["status"] == "ok"
-    assert body["counts"]["tier_rows"] == 950 and body["counts"]["items"] == 233
-    assert body["counts"]["open_flags"] == 27
+    assert body["counts"]["tier_rows"] == 910 and body["counts"]["items"] == 232
+    assert body["counts"]["open_flags"] == 23
 
 
 def test_catalog_has_no_prices(client):
     body = client.get("/api/catalog").json()
-    assert len(body["categories"]) == 14
+    assert len(body["categories"]) == 13
     rigid = next(p for c in body["categories"] for p in c["products"] if p["id"] == "rigid_boxes")
-    assert len({i["size"] for i in rigid["items"]}) == 20
+    assert len({i["size"] for i in rigid["items"]}) == 12
     assert {i["option_1"] for i in rigid["items"]} == {"Top-Bottom", "Magnetic / Slider"}
     assert rigid["option_labels"] == {"option_1": "Box type"}
     assert rigid["min_qty"] == 100 and rigid["production_time"] == "10-12 days"
@@ -140,7 +140,7 @@ def test_below_min_blocked(make_client, tmp_path, settings):
 
 def test_price_blocked(make_client, tmp_path, settings):
     client = _policy_client(make_client, tmp_path, settings, flagged_price_policy="block")
-    r = calc(client, item_id="rigid_boxes/8x10x2.5-in/magnetic-slider", quantity=1200)
+    r = calc(client, item_id="rigid_boxes/7x5x2-in/magnetic-slider", quantity=120)
     assert r.status_code == 422 and err(r) == "PRICE_BLOCKED"
 
 
@@ -162,7 +162,7 @@ def test_reload_needs_token(client):
     assert client.post("/api/admin/reload").status_code == 401
     assert client.post("/api/admin/reload", headers={"X-Admin-Token": "wrong"}).status_code == 401
     r = client.post("/api/admin/reload", headers={"X-Admin-Token": TOKEN})
-    assert r.status_code == 200 and r.json()["items"] == 233
+    assert r.status_code == 200 and r.json()["items"] == 232
 
 
 def test_reload_disabled_without_token(settings):
@@ -204,3 +204,11 @@ def test_forwarded_ip_ignored_unless_trusted(settings):
         for ip in ("1.1.1.1", "2.2.2.2")
     ]
     assert statuses == [200, 429]
+
+
+def test_catalog_sends_percent_addons(client):
+    body = client.get("/api/catalog").json()
+    rigid = next(p for c in body["categories"] for p in c["products"] if p["id"] == "rigid_boxes")
+    addons = {a["id"]: a for a in rigid["addons"]}
+    assert addons["inlet"]["percent"] == "20" and addons["inlet"]["price"] is None
+    assert addons["gold_foiling"]["percent"] is None and addons["gold_foiling"]["price"] == "4000"

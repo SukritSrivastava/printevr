@@ -24,7 +24,7 @@ export const lineReady = (l: CartLine) =>
 
 /** The catalogue product a line (or an add-on's article) was priced from. */
 function productOf(line: CartLine, lines: CartLine[]): string | null {
-  const source = line.source === 'addon' ? lines.find((l) => l.id === line.parent_id) : line
+  const source = line.source === 'addon' || line.source === 'customisation' ? lines.find((l) => l.id === line.parent_id) : line
   const req = source?.calc_request
   if (!req) return null
   return req.product_id ?? req.item_id?.split('/')[0] ?? null

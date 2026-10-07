@@ -8,9 +8,11 @@ from decimal import Decimal
 class Addon:
     id: str
     name: str
-    price: Decimal | None  # None = taken from the sheet (sample charge)
+    price: Decimal | None  # None = taken from the sheet (sample charge), or a percent add-on
     basis: str  # per_unit | per_order
     from_sheet: bool = False
+    # Percent of the line's unit price (per_unit only), e.g. a box inlet at 20%.
+    percent: Decimal | None = None
 
 
 @dataclass(frozen=True)

@@ -72,7 +72,7 @@ def test_operator_status_reports_storage_and_counts(settings, tmp_path):
     s = dataclasses.replace(settings, admin_token=TOKEN, database_url=url, staff_passcode=PASSCODE, secret_key="s")
     body = TestClient(create_app(s)).get("/api/admin/status", headers={"X-Admin-Token": TOKEN}).json()
     assert body["storage"] == {"configured": True, "ready": True, "pending_migrations": []}
-    assert body["counts"]["items"] == 233 and body["invoicing_disabled"] is None
+    assert body["counts"]["items"] == 232 and body["invoicing_disabled"] is None
 
 
 def test_unhandled_errors_answer_an_id_not_the_exception(settings, caplog):

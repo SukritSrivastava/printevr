@@ -8,6 +8,9 @@ export const CART = '/cart'
 export const INVOICES = '/invoices'
 export const DESIGNERS = '/designers'
 export const PRODUCTION = '/production'
+export const ATTENDANCE = '/attendance'
+export const EMPLOYEES = '/employees'
+export const LOGS = '/logs'
 export const LOGIN = '/login'
 
 /** FR-B2: calculator edits reach the URL this long after the last change. */

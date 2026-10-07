@@ -4,6 +4,7 @@ import type { CartLine, SpecLine } from '../api/invoiceTypes'
 import { isEdited, useCart, withFreshPrice } from '../cart/CartProvider'
 import { money } from '../lib/format'
 import { fromPaise, lineSubtotal, toPaise } from '../lib/invoiceMoney'
+import { AddCustomisationDialog, singular } from './AddCustomisationDialog'
 import { MiddleEditor } from './MiddleEditor'
 import { SpecListEditor } from './SpecListEditor'
 import { WarningBanner } from './WarningBanner'
@@ -39,7 +40,12 @@ export function CartLineCard({ line, index, count, changed }: Props) {
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [qty, setQty] = useState(String(line.quantity))
   const [quoteError, setQuoteError] = useState<string | null>(null)
+  const [customising, setCustomising] = useState(false)
   const children = lines.filter((l) => l.parent_id === line.id)
+  const isArticle = line.source === 'catalogue' || line.source === 'custom'
+  // A customisation charged per unit always has its article's quantity.
+  const followsArticle = line.source === 'customisation' && line.charge_basis === 'per_unit'
+  const ownPrice = line.source === 'custom' || line.source === 'customisation'
   const update = (patch: Partial<CartLine>) => dispatch({ type: 'update', id: line.id, patch })
   const subtotal = lineSubtotal(line.quantity, line.unit_price)
   const edited = isEdited(line)
@@ -115,6 +121,11 @@ export function CartLineCard({ line, index, count, changed }: Props) {
           <div className="mt-1 flex flex-wrap gap-2 text-xs">
             {line.source === 'custom' && <span className="rounded bg-cyan-wash px-1.5 py-0.5 text-cyan-deep">Custom item</span>}
             {line.source === 'addon' && <span className="rounded bg-cyan-wash px-1.5 py-0.5 text-cyan-deep">Add-on</span>}
+            {line.source === 'customisation' && (
+              <span className="rounded bg-cyan-wash px-1.5 py-0.5 text-cyan-deep">
+                Customisation · {line.charge_basis === 'per_order' ? 'once for the order' : `per ${singular(line.unit_label)}`}
+              </span>
+            )}
             {edited && (
               <span className="rounded bg-warn-wash px-1.5 py-0.5 text-warn">
                 Catalogue {money(line.catalogue_unit_price!)} · edited
@@ -178,7 +189,15 @@ export function CartLineCard({ line, index, count, changed }: Props) {
               <label htmlFor={`qty-${line.id}`} className="text-sm font-semibold text-ink-soft">
                 Quantity
               </label>
-              <input id={`qty-${line.id}`} className="field" inputMode="numeric" value={qty} onChange={(e) => onQuantity(e.target.value)} />
+              <input
+                id={`qty-${line.id}`}
+                className="field disabled:bg-sheet"
+                inputMode="numeric"
+                value={qty}
+                disabled={followsArticle}
+                onChange={(e) => onQuantity(e.target.value)}
+              />
+              {followsArticle && <p className="text-xs text-ink-soft">Follows the article's quantity</p>}
             </div>
             <div className="flex flex-col gap-1">
               <label htmlFor={`unit-${line.id}`} className="text-sm font-semibold text-ink-soft">
@@ -191,7 +210,7 @@ export function CartLineCard({ line, index, count, changed }: Props) {
             <label htmlFor={`price-${line.id}`} className="text-sm font-semibold text-ink-soft">
               Unit price (₹)
             </label>
-            {editPrice || line.source === 'custom' ? (
+            {editPrice || ownPrice ? (
               <input
                 id={`price-${line.id}`}
                 className="field"
@@ -232,6 +251,16 @@ export function CartLineCard({ line, index, count, changed }: Props) {
         <button type="button" className="rounded-md border-[1.5px] border-ink px-3 py-1.5 font-semibold" onClick={() => setEditing(!editing)} aria-expanded={editing}>
           {editing ? 'Done' : 'Edit'}
         </button>
+        {isArticle && (
+          <button
+            type="button"
+            className="rounded-md bg-cyan-wash px-3 py-1.5 font-semibold text-cyan-deep ring-1 ring-cyan/40"
+            onClick={() => setCustomising(true)}
+            aria-label={`Add a customisation to ${line.title}`}
+          >
+            + Add customisation
+          </button>
+        )}
         <button type="button" className="rounded-md px-2 py-1.5 disabled:opacity-30" disabled={index === 0} onClick={() => dispatch({ type: 'move', id: line.id, by: -1 })} aria-label={`Move line ${index + 1} up`}>
           ↑ Up
         </button>
@@ -240,7 +269,9 @@ export function CartLineCard({ line, index, count, changed }: Props) {
         </button>
         {confirmRemove ? (
           <span className="ml-auto flex items-center gap-2" role="group" aria-label="Confirm remove">
-            <span>Remove this line and its {children.length} add-on line{children.length === 1 ? '' : 's'}?</span>
+            <span>
+              Remove this line and the {children.length} add-on or customisation line{children.length === 1 ? '' : 's'} under it?
+            </span>
             <button type="button" className="font-semibold text-stop" onClick={() => dispatch({ type: 'remove', id: line.id })}>
               Remove
             </button>
@@ -258,6 +289,7 @@ export function CartLineCard({ line, index, count, changed }: Props) {
           </button>
         )}
       </div>
+      {customising && <AddCustomisationDialog line={line} onClose={() => setCustomising(false)} />}
     </article>
   )
 }

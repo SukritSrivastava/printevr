@@ -26,9 +26,11 @@ export function AddonList({ addons, selected, unit, onToggle }: Props) {
           />
           <span className="flex-1">{a.name}</span>
           <span className="text-sm text-ink-soft">
-            {a.price !== null
-              ? `+${shortMoney(a.price)} ${a.basis === 'per_unit' ? `per ${unit}` : 'per order'}`
-              : 'Priced per item'}
+            {a.percent
+              ? `+${a.percent}% of the ${unit} price`
+              : a.price !== null
+                ? `+${shortMoney(a.price)} ${a.basis === 'per_unit' ? `per ${unit}` : 'per order'}`
+                : 'Priced per item'}
           </span>
         </label>
       ))}

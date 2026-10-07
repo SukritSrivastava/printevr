@@ -29,7 +29,7 @@ Internal quoting tool. The spec is `docs/BRD-v2.1.pdf` (BRD v2.1); read the rele
 - Run `pytest` and the frontend tests before saying a milestone is done.
 
 ## Known deviations from the BRD text
-- **L1 item count is 233, not 284.** The sheet stores mailer-bag sizes as `6 × 8 in`, `6 × 8 in in`, `6 × 8 in in in`…, which would make every tier its own item. The loader collapses repeated unit words, which is also what makes L4's count of 11 come out right.
+- **L1 item count was 233, not 284 (232 since the October 2026 catalogue).** The sheet stores mailer-bag sizes as `6 × 8 in`, `6 × 8 in in`, `6 × 8 in in in`…, which would make every tier its own item. The loader collapses repeated unit words, which is also what makes L4's count of 11 come out right.
 - Item ids keep decimal points (`rigid_boxes/3.5x5.5x4-in/top-bottom`) rather than turning them into hyphens.
 - The API starts even if the sheet fails to load: `/api/health` says `error`, `/api/admin/status` (X-Admin-Token) and the log show the reason, and pricing routes return `DATA_NOT_LOADED` (503, no reason in the response) until a fixed sheet is reloaded. BRD section 7 lists counts on `/api/health`; they moved to `/api/admin/status` so the public endpoint reveals nothing internal.
 - Cart/invoice BRD deviations:
@@ -61,3 +61,17 @@ Internal quoting tool. The spec is `docs/BRD-v2.1.pdf` (BRD v2.1); read the rele
 - Times are `timestamptz` from the database clock (`clock_timestamp()`), shown in IST by `frontend/src/lib/designers.ts`.
 - The designer's name goes out in response headers only (`X-Designer`), never on a PDF.
 - The lock and migration tests need `TEST_DATABASE_URL` (a throwaway Postgres). Without it they are skipped.
+
+## Attendance and Employees (not in any BRD; README "Attendance and Employees")
+- Tables `employees` and `attendance` come only from `backend/migrations/0009_team_attendance.py`; `app/team/models.py` must match (`tests/test_team.py`). One attendance row per employee per IST day; times are server UTC, shown in IST.
+- Removing an employee only clears `active`; never delete employee or attendance rows except an admin's explicit attendance delete.
+- Who is an admin is decided only by `is_admin` in `app/team/routes.py` (today: the `ADMIN_PASSCODE` token in `X-Team-Admin`). Role-based login replaces that one function; roles are `ROLES` in `app/team/models.py`.
+- The admin token lives in `sessionStorage` (`frontend/src/api/team.ts`) and Sign out clears it. Public errors never name `ADMIN_PASSCODE`.
+
+## Catalogue (October 2026)
+- The workbook was rebuilt from `Printevr price catalog - updated.pdf` (README "Price catalogue"). `Rigid Boxes (up to 2,500)` is a separate product because anchor groups must share tier breakpoints.
+- Percent add-ons (`percent:` in `addon_library`, per_unit only) are priced per tier by `pricing/addons.AppliedAddon.at`; the quote reports their amount at the current tier.
+
+## Activity log (Logs tab; README "Logs")
+- Every successful POST/PUT/PATCH/DELETE under `/api/` (except calculate, login/logout and `/api/admin/*`) is written to `audit_log` (migration 0010) by the `activity_log` middleware in `app/main.py`. A new mutating route gets a readable sentence in `app/audit/describe.py` `ROUTES` (otherwise it logs as "other").
+- Never log secrets: `describe.redact` masks passcode/password/token/secret keys. Logging is best effort and must never fail the request. Only the admin can read it.

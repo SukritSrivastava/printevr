@@ -22,6 +22,7 @@ export function newId(): string {
 
 type Action =
   | { type: 'add'; lines: CartLine[] }
+  | { type: 'addChild'; parentId: string; line: CartLine }
   | { type: 'update'; id: string; patch: Partial<CartLine> }
   | { type: 'remove'; id: string }
   | { type: 'move'; id: string; by: -1 | 1 }
@@ -44,12 +45,32 @@ export function withFreshPrice(line: CartLine, fresh: { quantity: number; catalo
   }
 }
 
+/** Lines that print under their article (no number, no rule between them). */
+export const isChild = (l: CartLine) => l.source === 'addon' || l.source === 'customisation'
+
+/** A customisation charged per unit is always for its article's quantity. */
+function syncPerUnit(lines: CartLine[]): CartLine[] {
+  const byId = new Map(lines.map((l) => [l.id, l]))
+  return lines.map((l) => {
+    const parent = l.charge_basis === 'per_unit' && l.parent_id ? byId.get(l.parent_id) : undefined
+    return parent && parent.quantity !== l.quantity ? { ...l, quantity: parent.quantity } : l
+  })
+}
+
 function reducer(state: CartState, action: Action): CartState {
   switch (action.type) {
     case 'add':
       return { ...state, lines: [...state.lines, ...action.lines] }
+    case 'addChild': {
+      // After the article and the lines already under it.
+      const at = state.lines.findIndex((l) => l.id === action.parentId)
+      if (at < 0) return state
+      let end = at + 1
+      while (end < state.lines.length && state.lines[end].parent_id === action.parentId) end++
+      return { ...state, lines: syncPerUnit([...state.lines.slice(0, end), action.line, ...state.lines.slice(end)]) }
+    }
     case 'update':
-      return { ...state, lines: state.lines.map((l) => (l.id === action.id ? { ...l, ...action.patch } : l)) }
+      return { ...state, lines: syncPerUnit(state.lines.map((l) => (l.id === action.id ? { ...l, ...action.patch } : l))) }
     case 'remove':
       return { ...state, lines: state.lines.filter((l) => l.id !== action.id && l.parent_id !== action.id) }
     case 'move': {
@@ -74,7 +95,7 @@ function reducer(state: CartState, action: Action): CartState {
       return { ...state, checkout: { ...state.checkout, ...action.patch } }
     case 'fresh': {
       const byId = new Map(action.changes.map((c) => [c.id, c]))
-      return { ...state, lines: state.lines.map((l) => (byId.has(l.id) ? withFreshPrice(l, byId.get(l.id)!) : l)) }
+      return { ...state, lines: syncPerUnit(state.lines.map((l) => (byId.has(l.id) ? withFreshPrice(l, byId.get(l.id)!) : l))) }
     }
     case 'forgetCustomer':
       return { ...state, checkout: withoutCustomer(state.checkout) }

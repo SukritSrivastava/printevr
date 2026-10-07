@@ -180,6 +180,16 @@ def _qty(value, row: int) -> int:
     return int(q)
 
 
+def _addon_amount(value, addon_id: str, what: str) -> Decimal:
+    try:
+        amount = Decimal(str(value))
+    except InvalidOperation:
+        amount = Decimal(-1)
+    if value is None or isinstance(value, bool) or not amount.is_finite() or amount < 0:
+        raise LoaderError(f"config: add-on {addon_id!r}: {what} must be a number of at least 0")
+    return amount
+
+
 def _product_config(entry: dict, defaults: dict, library: dict) -> dict:
     merged = {**defaults, **entry}
     for key in ("product", "id", "sale_unit", "custom_dims"):
@@ -203,18 +213,24 @@ def _product_config(entry: dict, defaults: dict, library: dict) -> dict:
         spec = library.get(addon_id)
         if not spec:
             raise LoaderError(f"config: {merged['id']}: add-on {addon_id!r} not in addon_library")
+        if spec.get("basis") not in ("per_unit", "per_order"):
+            raise LoaderError(f"config: add-on {addon_id!r}: basis must be per_unit or per_order")
         from_sheet = spec.get("price") == "from_sheet"
+        percent = None
+        if "percent" in spec:
+            if "price" in spec or spec["basis"] != "per_unit":
+                raise LoaderError(f"config: add-on {addon_id!r}: a percent add-on is per_unit and has no price")
+            percent = _addon_amount(spec["percent"], addon_id, "percent")
         addons.append(
             Addon(
                 id=addon_id,
                 name=spec["name"],
-                price=None if from_sheet else Decimal(str(spec["price"])),
+                price=None if from_sheet or percent is not None else _addon_amount(spec.get("price"), addon_id, "price"),
                 basis=spec["basis"],
                 from_sheet=from_sheet,
+                percent=percent,
             )
         )
-        if spec["basis"] not in ("per_unit", "per_order"):
-            raise LoaderError(f"config: add-on {addon_id!r}: basis must be per_unit or per_order")
     merged["_addons"] = addons
     return merged
 

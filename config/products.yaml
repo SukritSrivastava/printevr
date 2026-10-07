@@ -1,5 +1,5 @@
 # Printevr product config — everything about a product except its prices.
-# Prices live only in data/Printevr_Pricing_Master_2025-26.xlsx.
+# Prices live only in data/Printevr_Pricing_Master_2025-26.xlsx (from the October 2026 catalogue).
 # `product` must match the Master "Product" column exactly.
 # `hsn_code` pre-fills the HSN CODE column on GST invoices (staff can edit it per line). Every
 # product starts blank on purpose: enter the real code from your GST records, never a guess.
@@ -29,6 +29,12 @@ addon_library:
   golden_print:   { name: Golden colour print,  price: 5,    basis: per_unit }
   black_zipper:   { name: Black zipper,         price: 5,    basis: per_unit }
   sample:         { name: Sample,               price: from_sheet, basis: per_order }
+  # Box add-ons (catalogue pages 16-22). `percent` = that share of the line's unit price.
+  inlet:          { name: Inlet (+20% of box price),         percent: 20, basis: per_unit }
+  premium_inlet:  { name: Premium inlet (+25% of box price), percent: 25, basis: per_unit }
+  gold_foiling:   { name: Gold foiling,         price: 4000, basis: per_order }   # "extra on the total order"
+  embossing:      { name: Embossing,            price: 6000, basis: per_order }
+  debossing:      { name: Debossing,            price: 6000, basis: per_order }
 
 products:
   # ---------- Ribbons ----------
@@ -218,17 +224,6 @@ products:
     custom_dims: none
     option_labels: { option_1: Finish }
 
-  # ---------- Paper printing ----------
-  - product: Customised Paper Printing
-    id: paper_printing
-    hsn_code: ""
-    invoice_title: Customised paper printing
-    sale_unit: sheet
-    custom_dims: none
-    size_label: Paper
-    max_qty: 1000
-    addons: [sample]
-
   # ---------- Boxes ----------
   - product: Monocarton Boxes
     id: monocarton_boxes
@@ -238,8 +233,9 @@ products:
     custom_dims: box
     anchor_group: monocarton_boxes
     anchor_match: [option_1]
-    option_labels: { option_1: Board }
-    notes: ["Custom material, shape, inside printing, formations and inlets on discussion"]
+    option_labels: { option_1: Box type }
+    addons: &box_addons [inlet, premium_inlet, gold_foiling, embossing, debossing]
+    notes: &box_notes ["Custom size, material, shape, inside printing and premium formations on discussion"]
   - product: Rigid Boxes
     id: rigid_boxes
     hsn_code: ""
@@ -249,7 +245,21 @@ products:
     anchor_group: rigid_boxes
     anchor_match: [option_1]
     option_labels: { option_1: Box type }
-    notes: ["Custom material, shape, inside printing, formations and inlets on discussion"]
+    addons: *box_addons
+    notes: *box_notes
+  # Second rigid-box table (pages 19-20, untitled, priced to 2,500): its own product so custom
+  # sizes are priced from its own tiers (anchor groups must share breakpoints). Flag F28.
+  - product: Rigid Boxes (up to 2,500)
+    id: rigid_boxes_2500
+    hsn_code: ""
+    invoice_title: Customised rigid box printing
+    sale_unit: box
+    custom_dims: box
+    anchor_group: rigid_boxes_2500
+    anchor_match: [option_1]
+    option_labels: { option_1: Box type }
+    addons: *box_addons
+    notes: *box_notes
   - product: Corrugated Boxes
     id: corrugated_boxes
     hsn_code: ""
@@ -259,7 +269,8 @@ products:
     anchor_group: corrugated_boxes
     anchor_match: [option_1]
     option_labels: { option_1: Board }
-    notes: ["Custom material, shape, inside printing, formations and inlets on discussion"]
+    addons: *box_addons
+    notes: *box_notes
 
   # ---------- Carry bags: Small + Medium + Large pool together ----------
   - product: Small Carry Bags

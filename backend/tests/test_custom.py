@@ -63,7 +63,7 @@ def test_c3_equal_anchor_prices(quote):
 def test_c4_out_of_range(quote):
     r = rigid(quote, 20, 20, 5, 500)
     assert r["status"] == "manual_quote" and r["reason"] == "CUSTOM_OUT_OF_RANGE"
-    assert "1200.00" in r["message"] and "768.00" in r["message"]
+    assert "1200.00" in r["message"] and "264.00" in r["message"]
 
 
 def test_c5_carry_bag_pools_small_medium_large(quote):

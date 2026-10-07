@@ -37,6 +37,9 @@ class Settings:
     # Invoicing (docs/BRD-cart-invoice.md section 8.6). No passcode = invoicing off.
     staff_passcode: str | None = None
     secret_key: str | None = None
+    # Team tab: changing employees and correcting attendance (a stand-in for role-based login).
+    # No passcode = nobody can make those changes; check-in/out still works.
+    admin_passcode: str | None = None
     database_url: str | None = None
     invoice_config_file: Path = ROOT / "config" / "invoice.yaml"
     # Emailing invoices (config/invoice.yaml `email`). No SMTP_PASSWORD = no emails.
@@ -85,6 +88,7 @@ def get_settings() -> Settings:
         require_password=bool(os.getenv("VERCEL")),
         staff_passcode=_env("STAFF_PASSCODE", "") or None,
         secret_key=_env("SECRET_KEY", "") or None,
+        admin_passcode=_env("ADMIN_PASSCODE", "") or None,
         # Serverless disks are wiped between requests, so there is no SQLite default on Vercel:
         # without DATABASE_URL, invoices are rendered and downloaded but not stored.
         database_url=_env("DATABASE_URL", "") or (None if os.getenv("VERCEL") else DEFAULT_DATABASE_URL),

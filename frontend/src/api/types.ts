@@ -25,6 +25,8 @@ export interface CatalogAddon {
   price: string | null
   basis: 'per_unit' | 'per_order'
   from_sheet: boolean
+  /** Percent of the unit price (box inlets); `price` is null then. */
+  percent?: string | null
 }
 
 export interface CatalogProduct {

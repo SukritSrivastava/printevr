@@ -12,7 +12,11 @@ export type Middle =
   | { kind: 'note'; text: string }
   | { kind: 'reference_price'; amount: string }
 
-export type LineSource = 'catalogue' | 'custom' | 'addon'
+/** customisation: a customisation typed in the cart with its own charge, printed under its article. */
+export type LineSource = 'catalogue' | 'custom' | 'addon' | 'customisation'
+
+/** How a charged customisation is billed: for every unit of its article, or once for the order. */
+export type ChargeBasis = 'per_unit' | 'per_order'
 
 /** What /api/calculate returns in data.invoice_lines. */
 export interface InvoiceLineDraft {
@@ -35,6 +39,8 @@ export interface CartLine extends InvoiceLineDraft {
   id: string
   parent_id: string | null
   calc_request: CalculateRequest | null
+  /** Customisation lines only (absent on carts saved before customisations had charges). */
+  charge_basis?: ChargeBasis | null
 }
 
 /** The invoice's bill type: the Printevr invoice, or the BASTTA GST invoice. */

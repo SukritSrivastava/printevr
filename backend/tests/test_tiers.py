@@ -128,11 +128,11 @@ def test_other_products_need_whole_units(quote):
 
 
 def test_t13_flagged_price_warns(quote):
-    d = data(quote(item_id="rigid_boxes/8x10x2.5-in/magnetic-slider", quantity=1200))
-    assert d["pricing"]["unit_price"] == "120.00"
-    assert d["totals"]["subtotal"] == "144000.00"
+    d = data(quote(item_id="rigid_boxes/7x5x2-in/magnetic-slider", quantity=120))
+    assert d["pricing"]["unit_price"] == "160.00"
+    assert d["totals"]["subtotal"] == "19200.00"
     warning = next(w for w in d["warnings"] if w["code"] == "PRICE_UNDER_REVIEW")
-    assert warning["flags"] == ["F1"]
+    assert warning["flags"] == ["F4"]
 
 
 def test_t14_butter_paper_with_per_order_addon(quote):
@@ -149,8 +149,8 @@ def test_t15_invoice_billing_has_no_gst(quote):
 
 
 def test_l6_fixed_flag_no_longer_warns(sheet, rebuild, quote):
-    cat = rebuild(flags=dict(sheet[1]) | {"F1": "Fixed"})
-    r = quote(cat=cat, item_id="rigid_boxes/8x10x2.5-in/magnetic-slider", quantity=1200)
+    cat = rebuild(flags=dict(sheet[1]) | {"F4": "Fixed"})
+    r = quote(cat=cat, item_id="rigid_boxes/7x5x2-in/magnetic-slider", quantity=120)
     assert "PRICE_UNDER_REVIEW" not in codes(r)
 
 
@@ -159,7 +159,7 @@ def test_flagged_price_policy_block(sheet, rebuild, quote):
     config["defaults"]["flagged_price_policy"] = "block"
     cat = rebuild(config=config)
     with pytest.raises(QuoteError) as exc:
-        quote(cat=cat, item_id="rigid_boxes/8x10x2.5-in/magnetic-slider", quantity=1200)
+        quote(cat=cat, item_id="rigid_boxes/7x5x2-in/magnetic-slider", quantity=120)
     assert exc.value.code == "PRICE_BLOCKED"
 
 
@@ -208,3 +208,46 @@ def test_better_option_only_when_cheaper():
     assert better_option(Decimal(100), [(500, Decimal(100))]) is None
     best = better_option(Decimal(100), [(500, Decimal(90)), (1000, Decimal(80))])
     assert (best.qty, best.saving) == (1000, 20)
+
+
+# ---- Box add-ons from the October 2026 catalogue: inlets are a percent of the box price,
+# foiling / embossing / debossing are "extra on the total order".
+
+
+def test_box_inlet_is_a_percent_of_the_tier_price(quote):
+    d = data(quote(item_id=RIGID_TB, quantity=300, addons=["inlet"]))
+    assert d["pricing"]["unit_price"] == "75.00"
+    assert d["addons"] == [{"id": "inlet", "name": "Inlet (+20% of box price)", "price": "15.00", "basis": "per_unit"}]
+    assert d["totals"]["subtotal"] == "27000.00"  # (75 + 15) x 300
+
+
+def test_premium_inlet_with_per_order_foiling(quote):
+    d = data(quote(item_id=RIGID_TB, quantity=300, addons=["premium_inlet", "gold_foiling"]))
+    prices = {a["id"]: (a["price"], a["basis"]) for a in d["addons"]}
+    assert prices == {"premium_inlet": ("18.75", "per_unit"), "gold_foiling": ("4000.00", "per_order")}
+    assert money_line(d) == ("32125.00", "5782.50", "37907.50")  # (75 + 18.75) x 300 + 4000
+
+
+def test_percent_addon_follows_each_tier_on_the_slider(quote):
+    d = data(quote(item_id=RIGID_TB, quantity=300, addons=["inlet"]))
+    # 3 x 3 x 2 Top-Bottom: 105 / 75 / 55 / 45 / 40, each plus 20%.
+    assert [t["unit_price"] for t in d["tier_schedule"]["tiers"]] == ["126.00", "90.00", "66.00", "54.00", "48.00"]
+    nxt = d["pricing"]["next_tier"]
+    assert nxt["qty_from"] == 500 and nxt["unit_price"] == "55.00"  # next_tier shows the box price alone
+
+
+def test_percent_addon_on_a_custom_size(quote):
+    plain = data(quote(product_id="rigid_boxes", options={"option_1": "Top-Bottom"},
+                       custom_dimensions={"length": 6.5, "width": 6.5, "height": 2, "unit": "in"}, quantity=450))
+    inlet = data(quote(product_id="rigid_boxes", options={"option_1": "Top-Bottom"},
+                       custom_dimensions={"length": 6.5, "width": 6.5, "height": 2, "unit": "in"}, quantity=450,
+                       addons=["inlet"]))
+    unit = Decimal(plain["pricing"]["unit_price"])
+    assert inlet["addons"][0]["price"] == format((unit * Decimal("0.2")).quantize(Decimal("0.01")), "f")
+    assert Decimal(inlet["totals"]["subtotal"]) == (unit * Decimal("1.2")) * 450
+
+
+def test_new_rigid_range_quotes_its_own_tiers(quote):
+    d = data(quote(item_id="rigid_boxes_2500/4x4x2-in/slider", quantity=2600))
+    assert d["pricing"]["tier_applied"]["qty_from"] == 2500
+    assert d["pricing"]["unit_price"] == "62.00"

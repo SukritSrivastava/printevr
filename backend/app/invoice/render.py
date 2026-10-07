@@ -82,9 +82,10 @@ def compose(doc: InvoiceDocument, cfg: InvoiceConfig) -> Composed:
     L.register_fonts()
     m = document_money(doc, cfg)
     rows = [layout_row(line, cfg.pad_single_digit_unit_price) for line in doc.lines]
-    # As on the template, an article and its add-on rows share a block: no rule between them.
+    # As on the template, an article and its add-on (and customisation) rows share a block:
+    # no rule between them.
     for row, following in zip(rows, doc.lines[1:]):
-        if following.source == "addon":
+        if following.source in ("addon", "customisation"):
             row.ops = [op for op in row.ops if not isinstance(op, Bar)]
     box = _payment_box(doc, cfg, m)
     # Without the payment box the totals still need the room below the last row.

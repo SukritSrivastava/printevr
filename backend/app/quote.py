@@ -174,9 +174,9 @@ def calculate(cat: Catalogue, req: QuoteInput) -> dict:
                 chosen = addonlib.select_addons(addonlib.available_addons(product.addons, item.sample_charge), req.addons)
             except addonlib.UnknownAddon:
                 chosen = []
-            per_unit, per_order = addonlib.split(chosen)
+            per_order = addonlib.split(chosen)[1]
             manual["data"]["tier_schedule"] = tier_schedule(
-                product, item.breakpoints, [t.price + per_unit for t in item.tiers], per_order
+                product, item.breakpoints, [t.price + addonlib.per_unit_at(chosen, t.price) for t in item.tiers], per_order
             )
         return {
             **manual,
@@ -249,10 +249,11 @@ def calculate(cat: Catalogue, req: QuoteInput) -> dict:
         chosen = addonlib.select_addons(available, req.addons)
     except addonlib.UnknownAddon as exc:
         raise validation(f"Add-on not available for this product: {exc}", field="addons") from None
-    per_unit, per_order = addonlib.split(chosen)
+    per_order = addonlib.split(chosen)[1]
 
     def line_subtotal(unit_price: Decimal, qty: Decimal) -> Decimal:
-        return totlib.subtotal(unit_price, per_unit, qty, per_order)
+        # Percent add-ons (box inlets) follow the tier's unit price.
+        return totlib.subtotal(unit_price, addonlib.per_unit_at(chosen, unit_price), qty, per_order)
 
     sub = line_subtotal(current.unit_price, match.billed_qty)
     tot = totlib.totals(sub, product.gst_rate, req.billing_type)
@@ -355,7 +356,8 @@ def calculate(cat: Catalogue, req: QuoteInput) -> dict:
                 "custom_estimate": custom_block,
             },
             "addons": [
-                {"id": a.id, "name": a.name, "price": m2(a.price), "basis": a.basis} for a in chosen
+                {"id": a.id, "name": a.name, "price": m2(a.price), "basis": a.basis}
+                for a in (c.at(current.unit_price) for c in chosen)
             ],
             "totals": {
                 "subtotal": m2(tot.subtotal),
@@ -368,7 +370,13 @@ def calculate(cat: Catalogue, req: QuoteInput) -> dict:
             "warnings": warnings,
             "notes": notes,
             "tier_schedule": tier_schedule(
-                product, breakpoints, [price_at(j).unit_price + per_unit for j in range(len(breakpoints))], per_order
+                product,
+                breakpoints,
+                [
+                    (u := price_at(j).unit_price) + addonlib.per_unit_at(chosen, u)
+                    for j in range(len(breakpoints))
+                ],
+                per_order,
             ),
         },
     }

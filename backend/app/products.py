@@ -21,7 +21,7 @@ def products(lines: list | None) -> list[dict]:
     out: list[dict] = []
     by_id: dict[str, dict] = {}
     for i, line in enumerate(lines):
-        if line.get("source") == "addon":
+        if line.get("source") in ("addon", "customisation"):
             continue
         specs = [
             f"{s.get('label', '')}: {s.get('value', '')}".strip(": ")
@@ -40,7 +40,7 @@ def products(lines: list | None) -> list[dict]:
         if line.get("id"):
             by_id[line["id"]] = product
     for line in lines:
-        if line.get("source") == "addon" and line.get("parent_id") in by_id:
+        if line.get("source") in ("addon", "customisation") and line.get("parent_id") in by_id:
             by_id[line["parent_id"]]["addons"].append(line.get("title", ""))
     return out
 

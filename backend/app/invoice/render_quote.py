@@ -29,18 +29,19 @@ COLUMNS = Columns(
 
 def rows_for(doc: InvoiceDocument, pad: bool) -> list[RowLayout]:
     """One row per line. Articles are numbered (1.TITLE, as on the template); an add-on gets its
-    own row, without a number and without a rule between it and its article."""
+    own row, without a number and without a rule between it and its article; so does a charged
+    customisation."""
     rows: list[RowLayout] = []
     number = 0
     for i, line in enumerate(doc.lines):
-        if line.source == "addon":
+        if line.source in ("addon", "customisation"):
             title = line.title
         else:
             number += 1
             title = f"{number}.{line.title}"
         row = layout_row(line, pad, COLUMNS, title)
         following = doc.lines[i + 1] if i + 1 < len(doc.lines) else None
-        if following is not None and following.source == "addon":
+        if following is not None and following.source in ("addon", "customisation"):
             row.ops = [op for op in row.ops if not isinstance(op, Bar)]
         rows.append(row)
     return rows

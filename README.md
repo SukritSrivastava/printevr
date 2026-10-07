@@ -77,6 +77,7 @@ Staff can add priced articles (and hand-typed custom items) to a cart, fill in S
 - Bill numbers start at 19 (`config/invoice.yaml` → `bill_no_start`) and are never reused.
 - PDFs are drawn with ReportLab from `backend/app/invoice/layout.py` (every coordinate) and `config/invoice.yaml` (every word). Fonts: Montserrat (SIL OFL) in `backend/assets/fonts/`.
 - **Non-GST invoices** print in the Printevr template; **GST invoices** keep the BASTTA layout. Under the items, every Non-GST invoice prints a **PAYMENT TERMS** box (total, advance %, and the balance before dispatch when the payment is split) and, once a payment is recorded, a **RECIEVABLES** box listing each payment (date, amount, mode) and the amount still pending (total minus everything received). It's filled in from the invoice; the wording is in `config/invoice.yaml` → `payment_summary`.
+- **Customisations** (not in the BRD): every article in the cart (catalogue or custom item) has **+ Add customisation** for anything out of the box. Choose a charge: **per unit** (its own row for the article's quantity, which follows the article when the quantity changes), **once for the order** (a one-time row, e.g. a die or block), or **no extra charge** (listed under `CUSTOMISATIONS:-` on the article). Charged ones print as `… (CUSTOMISATION)` rows under their article on the quotation, the Non-GST invoice and the GST invoice, and count in the subtotal, GST and payment terms; on GST invoices they take the article's HSN code. The server checks that each one follows its article, says how it's charged, and (per unit) has the article's quantity. Lines are `source: "customisation"` with `parent_id` and `charge_basis`.
 - Everything under `/api/invoices` needs the **staff passcode**, asked once per browser tab. The calculator stays open as before.
 
 ### Browser storage
@@ -149,6 +150,27 @@ After printing, the cart shows "Assigned to Namit · 3 Oct 2026, 4:35 PM". The d
 
 PDF responses carry `X-Job-Id`, `X-Designer` (percent-encoded) and `X-Assigned-At`.
 
+## Attendance and Employees
+
+Two staff tabs (shown when invoices are stored, like Production), behind the staff passcode:
+
+- **Attendance** (`/attendance`): every current employee for a day (IST). Each person taps **Check in** when they arrive and **Check out** when they leave; the server records the time, one record per person per day. **Month** shows days present, hours worked, average per day, missed check-outs and a day-by-day strip, with **Download CSV** for payroll. It refreshes every 10 seconds, so every device sees the same register.
+- **Employees** (`/employees`): the current workforce with role (Admin, Sales, Designer, Production, Accounts, Staff; `app/team/models.py` `ROLES`), phone, email and joining date. **Add**, **Edit**, **Remove** and **Restore**. Removing keeps the person's attendance history; "Show removed" lists them.
+
+Changing employees and correcting attendance (setting or deleting any day's times, e.g. a forgotten check-out) need the **admin passcode** (`ADMIN_PASSCODE`), asked once per browser tab ("Unlock admin"). Its token travels in `X-Team-Admin` and lives in `sessionStorage`; Sign out clears it. Without `ADMIN_PASSCODE` the pages still work for checking in and out, and admin changes answer `503 ADMIN_NOT_CONFIGURED`.
+
+Until role-based login exists, anyone with the staff passcode can check anyone in or out. When it arrives, replace `is_admin` in `backend/app/team/routes.py` (the one place that decides who is an admin) and tie user accounts to `employees.id` and `employees.role`. The Designer Assignment and Production employee lists are still their own tables.
+
+API (`/api/team`, staff token; ✱ = admin token too): `GET settings`, `POST admin/login`, `GET employees[?include_removed=true]`, `POST employees` ✱, `PATCH employees/{id}` ✱, `DELETE employees/{id}` ✱ (removes), `POST employees/{id}/restore` ✱, `GET attendance[?date=YYYY-MM-DD]`, `GET attendance/summary[?month=YYYY-MM]`, `POST attendance/check-in` / `check-out` `{employee_id}`, `PUT attendance/{employee_id}/{date}` ✱ `{check_in: "HH:MM", check_out, note}`, `DELETE attendance/{employee_id}/{date}` ✱.
+
+### Logs (activity log, admin only)
+
+The **Logs** tab (`/logs`) lists every change made on the website, newest first: invoices, quotations and GST invoices created (customer, lines, customisations, amount), payments recorded, invoices deleted, designer and production updates, employees added, edited, removed or restored, check-ins, check-outs and attendance corrections, and staff/admin sign-ins. Each entry has the time (IST), who (signed in with the staff or the admin passcode), the device and IP, and its details. Filter by date, area and text.
+
+It is written by a middleware in `app/main.py` (`activity_log`) after a change succeeds, with the text from `app/audit/describe.py`; failed requests, reads and price quotes aren't logged, passcodes and tokens never are, and a logging problem never fails the change. Only the admin passcode can read it (`GET /api/team/logs?from&to&category&q&limit&offset`). Until role-based login names each person, "who" is the passcode used plus the device and IP; `audit_log.actor_name` is there for the person's name.
+
+To turn it on in production: run the migrations (`0009`, `0010`, see below), then `npx vercel env add ADMIN_PASSCODE production` and redeploy.
+
 ### Database migrations
 
 Every table comes from a versioned file in `backend/migrations/`, applied in order by `app/migrations.py` and recorded in `schema_migrations`:
@@ -161,13 +183,15 @@ Every table comes from a versioned file in `backend/migrations/`, applied in ord
 | `0004_rate_limits.py` | Postgres + SQLite | `rate_limit_counters`, for login limits shared by every instance |
 | `0005_production.py` | Postgres + SQLite | Production tab: `production_employees` (adds Vivek) and `production_jobs` (one per Non-GST/GST invoice, with its assigned employee) |
 | `0006_production_stages.py` | Postgres + SQLite | `production_stage_progress`: per job and stage, the vendor, Completed, Sent to vendor and Picked up / received. A job that only had a current stage N gets stages 1 to N-1 marked complete; nothing later, and nothing marked sent or picked up |
+| `0009_team_attendance.py` | Postgres + SQLite | Team tab: `employees` (name, role, phone, email, joining date, active) and `attendance` (one row per employee per IST day: check-in, check-out, note, whether an admin set the times). Removing an employee only clears `active` |
+| `0010_audit_log.py` | Postgres + SQLite | `audit_log`: the activity log behind the Logs tab (one row per successful change; never updated) |
 | `0007_product_tracking.py` | Postgres + SQLite | Per-product tracking (a product = one non-add-on line of the invoice, by its position): `production_item_progress` (each product's ten stages), `design_items` (each product's designer, status, vendor) and `design_item_history`. Orders with one product get their order-level production stages and design status/vendor moved onto that product; orders with several products get nothing copied, and their order-level record stays (production shows it read-only) |
 
 - `.sql` files are Postgres-only; `.py` files define `upgrade(ctx)` with hand-written SQL for both dialects, so a migration never changes when the models do. `app/invoice/store.py` and `app/designers/models.py` must match them (`tests/test_invoice_migrations.py` and `tests/test_designer_migrations.py` compare them).
 - Each file runs once, in its own transaction, together with its `schema_migrations` row, so a failing file leaves nothing half-done. The transaction first takes a lock (Postgres `pg_advisory_xact_lock`, SQLite `BEGIN IMMEDIATE`) and only then checks whether the file is still pending. Several processes or instances can therefore run the migrations at once: one applies each file, the others wait and skip it. The lock is transaction-scoped, so it works through Neon's pooler too.
 - The app never changes the schema at runtime on Postgres. It checks the tables it needs when it first opens the database. If they're missing, invoice and designer routes answer `503 STORAGE_NOT_READY` and the calculator keeps working. If they're there but `0003` isn't recorded (a database built by the old runtime code), it works and logs a warning to run the migrations.
 - **SQLite** (local, `docker compose`) applies pending migrations by itself when the API first opens the database, under the same lock, so `uvicorn --workers N` is safe. Your existing `var/invoices.db` is upgraded in place.
-- To change the schema later, add `0005_….py` (or a Postgres-only `.sql`); never edit an applied file. Update the models to match.
+- To change the schema later, add the next `00NN_….py` (or a Postgres-only `.sql`); never edit an applied file. Update the models to match.
 
 **Deployment order (Postgres / Vercel):**
 
@@ -247,19 +271,32 @@ A reload that fails (a blank price, a duplicated tier, a product missing from co
 | `TRUST_PROXY_HEADERS` | `1` on Vercel, else `0` | Rate-limit by the forwarded client IP (`X-Forwarded-For`, read from the right; `X-Real-IP` only without it) instead of the proxy's |
 | `TRUSTED_PROXY_HOPS` | `1` | How many proxies append to `X-Forwarded-For` in front of the API |
 | `TRUSTED_PROXIES` | *(unset)* | Comma-separated IPs/CIDRs: believe forwarded headers only from these peers |
+| `ADMIN_PASSCODE` | *(unset)* | Admin passcode for the Employees list and attendance corrections ([Attendance and Employees](#attendance-and-employees)). Needs `SECRET_KEY` |
 | `DATABASE_URL_UNPOOLED` | *(unset)* | Only for `backend/scripts/migrate.py`: Neon's direct (unpooled) connection string. Not needed on Vercel |
 | `TEST_DATABASE_URL` | *(unset)* | Only for tests: a throwaway Postgres for the lock, migration and shared rate-limit tests |
 | `DATA_FILE`, `CONFIG_FILE` | `data/…xlsx`, `config/products.yaml` | Override file locations |
 | `VITE_API_URL` (frontend build) | *(same origin)* | API base URL when the UI and API are on different hosts |
 
+## Price catalogue (October 2026 update)
+
+Prices come from `Printevr price catalog - updated.pdf` (October 2026). Compared page by page with the previous catalogue, it changed:
+
+- **Customised Paper Printing** removed (product, tab and flags F5, F23 closed).
+- **Monocarton boxes** (pages 16-17): the 250-qty column is gone (tiers 500 / 1000 / 2500), and the 300 GSM / 600 GSM rows are now the box types **Flap opening** / **Top bottom**. Same prices otherwise.
+- **Rigid boxes**: page 18 unchanged; on page 19 only 7×7×2 and 8×6×6 remain of the old page 20 (8×10×2.5, 8×11×3, 9×6×2.5, 9×11×2, 10×10×3, 14×14×4, 16×16×4 and 18×12×4 are gone, closing F1 and F2). A new untitled table (pages 19-20, tiers to **2,500**, Top-Bottom / Magnetic / Slider) is its own product **Rigid Boxes (up to 2,500)** (`rigid_boxes_2500`), so custom sizes are priced from its own tiers. Flag F28 asks for its name.
+- **Corrugated boxes**: every price changed (F18 closed).
+- **Box add-ons** on all box products: Inlet +20% and Premium inlet +25% of the box price (per box, following each tier's price), Gold foiling ₹4000, Embossing ₹6000, Debossing ₹6000 (per order). A config add-on with `percent:` instead of `price:` is a share of the line's unit price.
+
+Every box price on pages 16-22 was checked against the PDF's numbers in order (382 prices, exact match); the other pages' text is identical to the old catalogue.
+
 ## Open data issues
 
-All 27 Review Flags are still `Open`, so quotes on those prices carry an amber "price under review" warning. The BRD lists F1–F11 as "fix before coding"; the tool works around them for now:
+23 Review Flags are `Open`, so quotes on those prices carry an amber "price under review" warning. The BRD lists F1–F11 as "fix before coding"; the tool works around the ones still open:
 
 - **F7:** the second 8 × 8 × 1.5 monocarton row is kept as its own item. Custom sizes use the higher price when two sizes tie.
 - **F8:** 10 × 7 × 3 appears in both Small and Medium carry bags. Both are quotable; custom sizes use the higher price.
 - **F9 / F10:** the page-15 products show as "Untitled cards (pg 15)" with "Confirm production time".
-- **F11:** page-17 and page-18 monocartons are interpolated together until they are labelled as different builds.
+- **F11:** page-16 and page-17 monocartons are interpolated together until they are labelled as different builds.
 
 The sheet also stores mailer-bag sizes with repeated units (`6 × 8 in in in`). The loader cleans these up, but it's worth fixing in the sheet too.
 

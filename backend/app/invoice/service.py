@@ -145,6 +145,8 @@ def reprice(cat: Catalogue, cfg: InvoiceConfig, lines: list[CartLine]) -> list[C
                 {"id": line.id, "quantity": _plain_qty(line.quantity), "catalogue_unit_price": match["catalogue_unit_price"], "warnings": []}
             )
 
+    _check_customisations(lines)
+
     if changes:
         raise InvoiceError("PRICES_CHANGED", "Prices changed since these were added", 409, {"lines": changes})
 
@@ -153,6 +155,34 @@ def reprice(cat: Catalogue, cfg: InvoiceConfig, lines: list[CartLine]) -> list[C
         edited = line.source != "custom" and line.catalogue_unit_price is not None and line.unit_price != line.catalogue_unit_price
         out.append(line.model_copy(update={"price_edited": edited}))
     return out
+
+
+# Lines a customisation can belong to (an add-on or another customisation can't have its own).
+ARTICLE_SOURCES = ("catalogue", "custom")
+# Lines that print under their article: no number, no rule between them and the article.
+CHILD_SOURCES = ("addon", "customisation")
+
+
+def _check_customisations(lines: list[CartLine]) -> None:
+    """A charged customisation names its article, comes after it, and says how it is charged;
+    one charged per unit is for exactly the article's quantity. Its price is the staff's own."""
+    seen: dict[str, CartLine] = {}
+    for line in lines:
+        if line.source == "customisation":
+            parent = seen.get(line.parent_id or "")
+            if parent is None or parent.source not in ARTICLE_SOURCES:
+                raise _validation("A customisation line must follow the article it customises", line=line.id)
+            if line.charge_basis is None:
+                raise _validation("Say whether the customisation is charged per unit or per order", line=line.id)
+            if line.charge_basis == "per_unit" and line.quantity != parent.quantity:
+                raise _validation(
+                    f"'{line.title}' is charged per unit, so its quantity must be the article's ({_plain_qty(parent.quantity)})",
+                    line=line.id,
+                )
+        elif line.charge_basis is not None:
+            raise _validation("Only customisation lines have a charge basis", line=line.id)
+        if line.id:
+            seen[line.id] = line
 
 
 def _plain_qty(q: Decimal) -> int | float:
@@ -222,7 +252,7 @@ def with_hsn(cat: Catalogue, lines: list[CartLine]) -> list[CartLine]:
     out = []
     for line in lines:
         if line.hsn_code is None:
-            source = by_id.get(line.parent_id or "") if line.source == "addon" else line
+            source = by_id.get(line.parent_id or "") if line.source in CHILD_SOURCES else line
             product = cat.product(_product_id(cat, source.calc_request) or "") if source else None
             line = line.model_copy(update={"hsn_code": (product.hsn_code if product else "") or ""})
         out.append(line)

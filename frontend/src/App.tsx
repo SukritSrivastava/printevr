@@ -5,6 +5,7 @@ import { ApiError, calculate, fetchCatalog, fetchSession, logout } from './api/c
 import type { InvoiceSettings } from './api/invoiceTypes'
 import type { CalculateRequest, Catalog, TierSchedule } from './api/types'
 import { fetchInvoiceSettings, setStaffToken } from './api/invoices'
+import { setAdminToken } from './api/team'
 import { useCart, CartProvider } from './cart/CartProvider'
 import { forgetCustomerDetails } from './cart/storage'
 import { AddonList } from './components/AddonList'
@@ -14,6 +15,10 @@ import { CustomItemDialog } from './components/CustomItemDialog'
 import { DesignersPage } from './components/designers/DesignersPage'
 import { InvoicesPage } from './components/InvoicesPage'
 import { ProductionPage } from './components/production/ProductionPage'
+import { AttendancePage } from './components/team/AttendancePage'
+import { EmployeesPage } from './components/team/EmployeesPage'
+import { LogsPage } from './components/team/LogsPage'
+import { TeamAdminProvider } from './components/team/TeamAdmin'
 import { StaffProvider } from './components/StaffLoginDialog'
 import { ToastProvider } from './components/Toast'
 import { CustomSizeInputs } from './components/CustomSizeInputs'
@@ -25,7 +30,7 @@ import { TierSlider, type ServerTier } from './components/TierSlider'
 import { defaultConfig, fromSearch, toSearch, type CalcConfig } from './lib/calcUrl'
 import { count, qtyWithUnit } from './lib/format'
 import { CUSTOM_SIZE, DIM_FIELDS, dimensionError, findItem, normalize, quantityError, supportsCustom } from './lib/selection'
-import { CALCULATOR, CART, CalculatorLinkProvider, DESIGNERS, INVOICES, LOGIN, PRODUCTION, useAppNav, useCalculatorUrl, useDocumentTitle, useHistoryTracking } from './nav'
+import { ATTENDANCE, CALCULATOR, CART, CalculatorLinkProvider, DESIGNERS, EMPLOYEES, INVOICES, LOGIN, LOGS, PRODUCTION, useAppNav, useCalculatorUrl, useDocumentTitle, useHistoryTracking } from './nav'
 
 export const DEBOUNCE_MS = 250
 
@@ -94,9 +99,10 @@ function Root() {
   } else {
     const onSignOut = sessionQuery.data.password_required
       ? () => {
-          // Signing out leaves no customer details or staff token in this browser; cart lines stay.
+          // Signing out leaves no customer details, staff or admin token in this browser; cart lines stay.
           forgetCustomerDetails()
           setStaffToken(null)
+          setAdminToken(null)
           logout().finally(signedOut)
         }
       : undefined
@@ -137,10 +143,29 @@ function CatalogGate({ onSignedOut }: { onSignedOut: () => void }) {
   return <Workspace catalog={catalogQuery.data} onSignedOut={onSignedOut} />
 }
 
-type View = 'calculator' | 'cart' | 'invoices' | 'designers' | 'production'
+type View = 'calculator' | 'cart' | 'invoices' | 'designers' | 'production' | 'attendance' | 'employees' | 'logs'
 
-const VIEW_PATHS: Record<View, string> = { calculator: CALCULATOR, cart: CART, invoices: INVOICES, designers: DESIGNERS, production: PRODUCTION }
-const TITLES: Record<string, string> = { [CALCULATOR]: 'Calculator', [CART]: 'Cart', '/checkout': 'Cart', [INVOICES]: 'Invoices', [DESIGNERS]: 'Designer Assignment', [PRODUCTION]: 'Production' }
+const VIEW_PATHS: Record<View, string> = {
+  calculator: CALCULATOR,
+  cart: CART,
+  invoices: INVOICES,
+  designers: DESIGNERS,
+  production: PRODUCTION,
+  attendance: ATTENDANCE,
+  employees: EMPLOYEES,
+  logs: LOGS,
+}
+const TITLES: Record<string, string> = {
+  [CALCULATOR]: 'Calculator',
+  [CART]: 'Cart',
+  '/checkout': 'Cart',
+  [INVOICES]: 'Invoices',
+  [DESIGNERS]: 'Designer Assignment',
+  [PRODUCTION]: 'Production',
+  [ATTENDANCE]: 'Attendance',
+  [EMPLOYEES]: 'Employees',
+  [LOGS]: 'Logs',
+}
 
 /** Calculator, Cart, Invoices and Designer Assignment. The stores sit above the screens, so switching screens keeps them. */
 function Workspace({ catalog, onSignedOut }: { catalog: Catalog; onSignedOut: () => void }) {
@@ -178,8 +203,9 @@ function Screens({
   const { go, backTo } = useAppNav()
   // Servers without storage have nothing to list, so the Invoices tab only shows when they store.
   const showInvoices = settingsQuery.data?.storage ?? false
-  // Design and production jobs live in the same database, so their tabs follow the same rule.
-  const stored: View[] = ['invoices', 'designers', 'production']
+  // Design and production jobs, employees and attendance live in the same database, so their
+  // tabs follow the same rule.
+  const stored: View[] = ['invoices', 'designers', 'production', 'attendance', 'employees', 'logs']
   const found = (v: View) => VIEW_PATHS[v] === pathname && (!stored.includes(v) || showInvoices)
   const view = (Object.keys(VIEW_PATHS) as View[]).find(found) ?? null
   useDocumentTitle(view || pathname === '/checkout' ? TITLES[pathname] : 'Page not found')
@@ -197,6 +223,36 @@ function Screens({
         {showInvoices && <Route path={INVOICES} element={<InvoicesPage />} />}
         {showInvoices && <Route path={DESIGNERS} element={<DesignersPage />} />}
         {showInvoices && <Route path={PRODUCTION} element={<ProductionPage />} />}
+        {showInvoices && (
+          <Route
+            path={ATTENDANCE}
+            element={
+              <TeamAdminProvider>
+                <AttendancePage />
+              </TeamAdminProvider>
+            }
+          />
+        )}
+        {showInvoices && (
+          <Route
+            path={LOGS}
+            element={
+              <TeamAdminProvider>
+                <LogsPage />
+              </TeamAdminProvider>
+            }
+          />
+        )}
+        {showInvoices && (
+          <Route
+            path={EMPLOYEES}
+            element={
+              <TeamAdminProvider>
+                <EmployeesPage />
+              </TeamAdminProvider>
+            }
+          />
+        )}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </>
@@ -253,6 +309,9 @@ function ViewTabs({ view, onView, showInvoices }: { view: View | null; onView: (
         {showInvoices && tab('invoices', 'Invoices')}
         {showInvoices && tab('designers', 'Designer Assignment', 'whitespace-nowrap')}
         {showInvoices && tab('production', 'Production')}
+        {showInvoices && tab('attendance', 'Attendance')}
+        {showInvoices && tab('employees', 'Employees')}
+        {showInvoices && tab('logs', 'Logs')}
       </div>
     </nav>
   )

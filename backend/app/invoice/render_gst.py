@@ -181,14 +181,18 @@ def _row(serial: int, line: CartLine) -> tuple[list[Op], float]:
     lowest = (len(titles) - 1) * G.TITLE_STEP
 
     y = lowest + G.SPEC_FIRST
-    specs = list(line.specs)
+    # Specs, then (like the Printevr invoice) a CUSTOMISATIONS:- heading over the customisations.
+    specs: list = list(line.specs)
     if line.customisations:
-        specs += list(line.customisations)
+        specs += [None, *line.customisations]
     for spec in specs:
         runs = []
-        if spec.label:
+        if spec is None:
+            runs = [(L.CUSTOMISATIONS_HEADING, G.BOLD)]
+        elif spec.label:
             runs += [(f"{fmt.caps(spec.label)}:- ", G.BOLD)]
-        runs.append((fmt.caps(spec.value), G.REGULAR))
+        if spec is not None:
+            runs.append((fmt.caps(spec.value), G.REGULAR))
         for pieces in wrap_runs(runs, G.SPEC_SIZE, G.SPEC_X, G.SPEC_X, G.SPEC_MAX_X):
             ops += [Text(px, y, t, f, G.SPEC_SIZE) for px, t, f in pieces]
             lowest = y

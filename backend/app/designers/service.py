@@ -70,7 +70,7 @@ def find_job(session: Session, series: str, bill_no: int) -> DesignJob | None:
 
 def summarize_items(lines: list) -> str:
     """'Rigid box ×350; Mailer bag ×1000; +2 more', within SUMMARY_MAX. Add-on rows are left out."""
-    parts = [f"{line.title} ×{Decimal(line.quantity).normalize():f}" for line in lines if line.source != "addon"]
+    parts = [f"{line.title} ×{Decimal(line.quantity).normalize():f}" for line in lines if line.source not in ("addon", "customisation")]
     text = ""
     for i, part in enumerate(parts):
         more = f"; +{len(parts) - i} more"

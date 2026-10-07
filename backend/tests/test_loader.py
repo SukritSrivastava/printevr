@@ -11,17 +11,18 @@ from app.loader import LoaderError, load, make_item_id
 
 def test_l1_counts(catalogue):
     # The BRD's 284 counts each mailer-bag tier as its own item because the sheet's size
-    # text repeats "in" ("6 × 8 in in in"). Normalised, the sheet holds 233 items.
-    assert catalogue.tier_rows == 950
-    assert len(catalogue.items) == 233
+    # text repeats "in" ("6 × 8 in in in"). Normalised, the sheet held 233 items; the
+    # October 2026 catalogue (no paper printing, new rigid and monocarton tables) has 232.
+    assert catalogue.tier_rows == 910
+    assert len(catalogue.items) == 232
     assert len(catalogue.products) == 27
-    assert len(catalogue.categories) == 14
-    assert catalogue.sample_rows == 12
+    assert len(catalogue.categories) == 13
+    assert catalogue.sample_rows == 7
 
 
 def test_l1_every_row_is_accounted_for(catalogue):
-    assert sum(len(i.tiers) for i in catalogue.items.values()) == 950
-    assert sum(1 for i in catalogue.items.values() if i.sample_charge is not None) == 12
+    assert sum(len(i.tiers) for i in catalogue.items.values()) == 910
+    assert sum(1 for i in catalogue.items.values() if i.sample_charge is not None) == 7
 
 
 def test_mailer_sizes_are_normalised(catalogue):
@@ -64,12 +65,11 @@ def test_l3_duplicated_tier_row_stops_startup(sheet, rebuild):
         rebuild(rows=rows)
 
 
-def test_l4_price_does_not_fall_warning_on_exactly_11_items(catalogue):
-    assert len(catalogue.warnings) == 11
+def test_l4_price_does_not_fall_warning_on_exactly_5_items(catalogue):
+    # 11 before the October 2026 catalogue: its rigid-box and paper-printing changes removed 6.
+    assert len(catalogue.warnings) == 5
     flagged = " ".join(catalogue.warnings)
     for item in (
-        "rigid_boxes/8x10x2.5-in/magnetic-slider",
-        "rigid_boxes/18x12x4-in/magnetic-slider",
         "vc_textured/300-gsm/no-lamination/double-side",
         "id_cards/holder",
         "frosted_bags/10x14-in",
@@ -142,4 +142,22 @@ def test_item_ids():
 
 def test_sample_rows_become_sample_charges(catalogue):
     assert str(catalogue.item("sticker_sheets/paper").sample_charge) == "250"
-    assert str(catalogue.item("paper_printing/90-120-gsm").sample_charge) == "200"
+
+
+def test_percent_addon_needs_per_unit_and_no_price(sheet, rebuild):
+    for bad in ({"name": "X", "percent": 20, "basis": "per_order"},
+                {"name": "X", "percent": 20, "price": 5, "basis": "per_unit"},
+                {"name": "X", "percent": "lots", "basis": "per_unit"}):
+        config = copy.deepcopy(sheet[2])
+        config["addon_library"]["inlet"] = bad
+        with pytest.raises(LoaderError, match="inlet"):
+            rebuild(config=config)
+
+
+def test_box_products_offer_the_catalogue_addons(catalogue):
+    for pid in ("monocarton_boxes", "rigid_boxes", "rigid_boxes_2500", "corrugated_boxes"):
+        addons = {a.id: a for a in catalogue.products[pid].addons}
+        assert str(addons["inlet"].percent) == "20" and addons["inlet"].price is None
+        assert str(addons["premium_inlet"].percent) == "25"
+        assert [str(addons[k].price) for k in ("gold_foiling", "embossing", "debossing")] == ["4000", "6000", "6000"]
+        assert all(addons[k].basis == "per_order" for k in ("gold_foiling", "embossing", "debossing"))

@@ -352,6 +352,91 @@ describe('cart', () => {
     expect(api.invoices[1]).toMatchObject({ document_type: 'quotation', bill_type: null, gst_slab: null, gst: null })
   })
 
+  it('customisations: charged per box, once for the order, or free, and all of them reach the quotation', async () => {
+    savedCart([catalogueLine()])
+    sessionStorage.setItem('printevr.staff.token', '9999999999.sig')
+    const api = mockApi()
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    const add = async (text: string, charge: RegExp, price?: string, details?: string) => {
+      await user.click(screen.getByRole('button', { name: 'Add a customisation to Customised rigid box printing' }))
+      const dialog = await screen.findByRole('dialog', { name: /Customise/ })
+      await user.type(within(dialog).getByLabelText('Customisation'), text)
+      if (details) await user.type(within(dialog).getByLabelText('Details (optional)'), details)
+      await user.click(within(dialog).getByRole('radio', { name: charge }))
+      if (price) {
+        await user.type(within(dialog).getByLabelText(/Charge (per box|for the order)/), price)
+        expect(within(dialog).getByTestId('customisation-total')).toBeInTheDocument()
+      }
+      await user.click(within(dialog).getByRole('button', { name: 'Add customisation' }))
+    }
+
+    // A charge is required unless the customisation is free.
+    await user.click(screen.getByRole('button', { name: 'Add a customisation to Customised rigid box printing' }))
+    let dialog = await screen.findByRole('dialog', { name: /Customise/ })
+    await user.click(within(dialog).getByRole('button', { name: 'Add customisation' }))
+    expect(within(dialog).getByText('Describe the customisation')).toBeInTheDocument()
+    expect(within(dialog).getByText(/Enter the charge/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    await add('Gold foil logo on lid', /Per box/, '12.50', 'Front only')
+    await add('Custom die', /Once for the order/, '1500')
+    await add('Ribbon pull tab', /No extra charge/)
+
+    const subtotals = screen.getAllByTestId('line-subtotal').map((e) => e.textContent)
+    expect(subtotals).toEqual(['₹26,250.00', '₹4,375.00', '₹1,500.00'])
+    expect(screen.getByText('Customisation · per box')).toBeInTheDocument()
+    expect(screen.getByText('Customisation · once for the order')).toBeInTheDocument()
+    expect(screen.getByText('RIBBON PULL TAB')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Quotation' }))
+    await waitFor(() => expect(api.invoices).toHaveLength(1))
+    const [main, perBox, once] = api.invoices[0].lines
+    expect(main.customisations).toEqual([{ label: null, value: 'Ribbon pull tab', emphasis: false }])
+    expect(perBox).toMatchObject({
+      source: 'customisation',
+      parent_id: 'line-1',
+      charge_basis: 'per_unit',
+      title: 'Gold foil logo on lid (customisation)',
+      quantity: 350,
+      unit_label: 'boxes',
+      unit_price: '12.50',
+      catalogue_unit_price: null,
+      specs: [
+        { label: 'For', value: 'Customised rigid box printing', emphasis: false },
+        { label: 'Details', value: 'Front only', emphasis: false },
+      ],
+    })
+    expect(once).toMatchObject({ source: 'customisation', charge_basis: 'per_order', quantity: 1, unit_label: 'order', unit_price: '1500.00' })
+  })
+
+  it('a customisation charged per box follows its article when the quantity changes', async () => {
+    const perBox: CartLine = {
+      ...draft(350, '10.00'),
+      id: 'c1',
+      source: 'customisation',
+      parent_id: 'line-1',
+      charge_basis: 'per_unit',
+      calc_request: null,
+      catalogue_unit_price: null,
+      title: 'Embossing (customisation)',
+      specs: [],
+    }
+    savedCart([catalogueLine(), perBox])
+    mockApi()
+    const user = setup()
+    renderApp()
+    await openCart(user)
+    await act(() => vi.advanceTimersByTimeAsync(50))
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0])
+    const field = screen.getByLabelText('Quantity')
+    await user.clear(field)
+    await user.type(field, '500')
+    await act(() => vi.advanceTimersByTimeAsync(300))
+    await waitFor(() => expect(screen.getAllByTestId('line-subtotal').map((e) => e.textContent)).toEqual(['₹37,500.00', '₹5,000.00']))
+  })
+
   it('Quotation waits for a priced line and says so', async () => {
     savedCart([{ ...catalogueLine(), unit_price: '' }])
     mockApi()
@@ -637,7 +722,7 @@ describe('cart', () => {
     renderApp()
     await openCart(user)
     const nav = screen.getByRole('navigation', { name: 'Sections' })
-    expect(within(nav).getAllByRole('button').map((b) => b.textContent?.replace(/\d+$/, ''))).toEqual(['Calculator', 'Cart', 'Invoices', 'Designer Assignment', 'Production'])
+    expect(within(nav).getAllByRole('button').map((b) => b.textContent?.replace(/\d+$/, ''))).toEqual(['Calculator', 'Cart', 'Invoices', 'Designer Assignment', 'Production', 'Attendance', 'Employees', 'Logs'])
     await user.click(within(nav).getByRole('button', { name: 'Invoices' }))
     expect(window.location.pathname).toBe('/invoices')
     expect(within(nav).getByRole('button', { name: 'Invoices' })).toHaveAttribute('aria-current', 'page')

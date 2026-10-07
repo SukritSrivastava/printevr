@@ -12,6 +12,8 @@ from app.designers.models import DesignBase, DesignJob
 from .pg import migrate, needs_postgres, temp_schema
 
 NEW = "0008_design_final_statuses.py"
+# Migrations added after 0008; an old database gets them in the same run.
+LATER = ["0009_team_attendance.py", "0010_audit_log.py"]
 JOB = (
     "INSERT INTO design_jobs (id, series, bill_no, customer_name, invoice_total, items_summary, assigned_at, status,"
     " vendor_name, updated_at) VALUES (:id, 'non_gst', :bill, 'A', 100, 'Box x1', '2026-10-01 10:00:00+00', :status,"
@@ -81,9 +83,9 @@ def test_old_checks_are_widened_and_rows_stay(old_db):
     with pytest.raises(IntegrityError), old_db.begin() as conn:
         conn.execute(text(JOB), {"id": 3, "bill": 20, "status": 5, "vendor": None})  # refused before 0008
     before = rows(old_db)
-    assert migrations.pending(old_db) == [NEW]
+    assert migrations.pending(old_db) == [NEW, *LATER]
 
-    assert migrations.migrate(old_db, out=lambda _: None) == [NEW]
+    assert migrations.migrate(old_db, out=lambda _: None) == [NEW, *LATER]
     assert rows(old_db) == before
     assert migrations.migrate(old_db, out=lambda _: None) == []
 
