@@ -26,6 +26,8 @@ from .catalogue import Catalogue
 from .designers.routes import PATHS as DESIGNER_PATHS
 from .designers.routes import create_router as designer_router
 from .errors import error, install_handlers
+from .export.routes import PATH_PREFIX as EXPORT_PREFIX
+from .export.routes import create_router as export_router
 from .loader import LoaderError, load
 from .models import CalculateRequest, LoginRequest
 from .production.routes import PATHS as PRODUCTION_PATHS
@@ -126,8 +128,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.middleware("http")
     async def require_session(request: Request, call_next):
         path = request.url.path
-        # /api/admin/* has its own token; the login flow and health check are open.
-        if not path.startswith("/api/") or path in auth.PUBLIC_PATHS or path.startswith("/api/admin/"):
+        # /api/admin/* and /api/export/* have their own tokens; the login flow and health check are open.
+        if not path.startswith("/api/") or path in auth.PUBLIC_PATHS or path.startswith(("/api/admin/", EXPORT_PREFIX)):
             return await call_next(request)
         if settings.site_password is None and settings.require_password:
             return error("AUTH_NOT_CONFIGURED", AUTH_NOT_CONFIGURED_MESSAGE, 503)
@@ -208,6 +210,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             login_limiter=team_admin_limiter,
         )
     )
+    app.include_router(export_router(app.state.invoices["get_store"], error, app.state.invoices["storage_error"], invoice_cfg))
     if settings.site_password is None and settings.require_password:
         log.error("SITE_PASSWORD is not set: every protected route answers 503 AUTH_NOT_CONFIGURED")
 
