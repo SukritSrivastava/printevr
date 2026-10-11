@@ -162,6 +162,7 @@ export function JobsBoard({ designers }: { designers: Designer[] }) {
                     </td>
                     <td className="max-w-56 px-3 py-2">
                       <div className="font-semibold">{job.customer_name}</div>
+                      {job.customer_phone && <div className="text-xs text-ink-soft">{job.customer_phone}</div>}
                       <div className="truncate text-xs text-ink-soft" title={job.items_summary}>
                         {job.items_summary}
                       </div>
@@ -203,6 +204,7 @@ export function JobsBoard({ designers }: { designers: Designer[] }) {
                       {invoiceLabel(job)}
                     </button>{' '}
                     <span className="font-semibold">{job.customer_name}</span>
+                    {job.customer_phone && <p className="text-xs text-ink-soft">{job.customer_phone}</p>}
                     <p className="text-xs text-ink-soft">{job.items_summary}</p>
                   </div>
                   <span className="shrink-0 rounded bg-sheet px-2 py-0.5 text-sm font-semibold">{job.designer_name ?? 'Unassigned'}</span>

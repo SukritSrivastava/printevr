@@ -14,6 +14,8 @@ export interface Job {
   series: 'non_gst' | 'gst'
   bill_no: number
   customer_name: string
+  /** The customer's phone from the invoice (jobs board only); null when it has none. */
+  customer_phone?: string | null
   invoice_total: string
   items_summary: string
   designer_id: number | null
@@ -36,6 +38,8 @@ export interface ProductDesign {
   quantity: string
   unit_label: string
   details: string[]
+  /** Every spec and free customisation of the line (jobs board); `details` has only the first few. */
+  specs?: string[]
   addons: string[]
   /** The product's own designer; null = the order's designer. */
   designer_id: number | null

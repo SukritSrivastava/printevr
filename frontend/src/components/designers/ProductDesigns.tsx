@@ -50,9 +50,9 @@ function ProductRow({ job, product, index, designers }: { job: Job; product: Pro
             × {product.quantity} {product.unit_label}
           </span>
         </p>
-        {(product.details.length > 0 || product.addons.length > 0) && (
-          <p className="truncate text-xs text-ink-soft" title={[...product.details, ...product.addons.map((a) => `+ ${a}`)].join(' · ')}>
-            {[...product.details, ...product.addons.map((a) => `+ ${a}`)].join(' · ')}
+        {((product.specs ?? product.details).length > 0 || product.addons.length > 0) && (
+          <p className="break-words text-xs text-ink-soft">
+            {[...(product.specs ?? product.details), ...product.addons.map((a) => `+ ${a}`)].join(' · ')}
           </p>
         )}
       </div>
