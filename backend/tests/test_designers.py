@@ -319,3 +319,24 @@ def test_staff_token_required(app, client):
     for path in ("/api/jobs", "/api/designers", "/api/workload", "/api/rotation/next", "/api/vendors"):
         assert bare.get(path).status_code == 401, path
     assert bare.patch("/api/jobs/1", json={"status": 2}).status_code == 401
+
+
+def test_jobs_board_shows_the_customers_phone(client):
+    print_invoice(client)  # Ship To phone +91 95010 60618
+    gst = client.post("/api/invoices", json=gst_body([k1_line(client)], "intra_18"))
+    assert gst.status_code == 201, gst.text
+    jobs = {(j["series"], j["customer_name"]): j for j in client.get("/api/jobs").json()["jobs"]}
+    assert jobs[("non_gst", "Sogat Jutti Store")]["customer_phone"] == "+91 95010 60618"
+    assert jobs[("gst", "Jairpur Jewellers")]["customer_phone"] == "94172 81136"  # the buyer's
+
+
+def test_jobs_board_lists_every_spec(client):
+    from .test_customisations import cart
+
+    lines = cart(client)
+    assert client.post("/api/invoices", json=invoice_body(lines)).status_code == 201
+    (product,) = client.get("/api/jobs").json()["jobs"][0]["products"]
+    main = lines[0]
+    expected = [f"{s['label']}: {s['value']}" if s.get("label") else s["value"] for s in main["specs"]]
+    expected += [f"{c.get('label') or 'Customisation'}: {c['value']}" for c in main["customisations"]]
+    assert product["specs"] == expected and "Customisation: Ribbon pull tab" in product["specs"]

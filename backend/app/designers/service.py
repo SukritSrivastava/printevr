@@ -246,7 +246,29 @@ def list_jobs(
     names = _names(session)
     out = [job_json(j, names) for j in jobs]
     attach_products(session, jobs, out, names)
+    attach_phones(session, jobs, out)
     return {"jobs": out, "total": total}
+
+
+def attach_phones(session: Session, jobs: list[DesignJob], out: list[dict]) -> None:
+    """Adds `customer_phone` (jobs board): the Ship To phone of a Non-GST invoice, the buyer's
+    phone of a GST invoice (else its Ship To phone); None when the invoice has none."""
+    from ..invoice.store import ROW_CLASSES  # imported here: the invoice package imports this module
+
+    phones: dict[tuple[str, int], str] = {}
+    for series in JOB_SERIES:
+        numbers = {j.bill_no for j in jobs if j.series == series}
+        if not numbers:
+            continue
+        row = ROW_CLASSES[series]
+        columns = [row.bill_no, row.customer] + ([row.details] if series == "gst" else [])
+        for bill_no, customer, *details in session.execute(select(*columns).where(row.bill_no.in_(numbers))):
+            buyer = ((details[0] if details else None) or {}).get("buyer") or {}
+            phone = (buyer.get("phone") or (customer or {}).get("phone") or "").strip()
+            if phone:
+                phones[(series, bill_no)] = phone
+    for job, data in zip(jobs, out):
+        data["customer_phone"] = phones.get((job.series, job.bill_no))
 
 
 def clean_vendor(value: str | None) -> str | None:
@@ -423,8 +445,26 @@ def attach_products(session: Session, jobs: list[DesignJob], out: list[dict], na
         for item in session.scalars(select(DesignItem).where(DesignItem.job_id.in_([j.id for j in jobs]))):
             items[(item.job_id, item.line_no)] = item
     for job, data in zip(jobs, out):
-        found = invoice_products(lines.get((job.series, job.bill_no)))
-        data["products"] = [product_json(p, items.get((job.id, p["line_no"])), job, names) for p in found]
+        stored = list(lines.get((job.series, job.bill_no)) or [])
+        found = invoice_products(stored)
+        data["products"] = [
+            {**product_json(p, items.get((job.id, p["line_no"])), job, names), "specs": all_specs(stored[p["line_no"]])}
+            for p in found
+        ]
+
+
+def all_specs(line: dict) -> list[str]:
+    """Every spec of a product line, then its free customisations, as the invoice lists them
+    (the jobs board shows them all; `details` keeps only the first few)."""
+    def text(spec, fallback: str = "") -> str:
+        if not isinstance(spec, dict):
+            return ""
+        label, value = spec.get("label") or fallback, spec.get("value") or ""
+        return f"{label}: {value}" if label else str(value)
+
+    specs = [text(s) for s in (line.get("specs") or [])]
+    specs += [text(s, "Customisation") for s in (line.get("customisations") or [])]
+    return [s for s in specs if s]
 
 
 def update_product(session: Session, job_id: int, line_no: int, changes: dict) -> dict:
